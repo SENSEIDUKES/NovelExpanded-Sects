@@ -1,35 +1,238 @@
 import * as THREE from 'three';
-import {
-  createChalkyWindowsillTextures,
-  createLinenTextures,
-  createWalnutTextures,
-} from '../utils/textures';
+import { PLANET_SCALE } from './cameraZoomRig';
 
 export interface RoomEnvironmentHandles {
   group: THREE.Group;
-  orbGlassMaterial: THREE.ShaderMaterial;
+  atmosphereRimMaterial: THREE.ShaderMaterial;
   skyMaterial: THREE.ShaderMaterial;
+  starfieldPoints: THREE.Group;
   updateTimeOfDay: (
     dayFactor: number,
     twilightFactor: number,
     nightFactor: number,
     elapsedTime: number,
+    planetQuaternion?: THREE.Quaternion,
+    weatherIntensity?: number,
   ) => void;
 }
 
+/**
+ * Outer radius of the planetary atmosphere in world units.
+ * Encompasses the 1.2x scaled planet (0.90 base radius) as well as all
+ * orbiting clouds, rain/snow showers, hot air balloons, and shooting stars.
+ */
+export const ATMOSPHERE_OUTER_RADIUS = 0.75 * PLANET_SCALE * 1.56; // ~1.404 world units
+
+/**
+ * Deterministic pseudo-random generator for reproducible 3D star distribution.
+ */
+function seededRandom(seed: number): number {
+  const x = Math.sin(seed * 12.9898 + 78.233) * 43758.5453123;
+  return x - Math.floor(x);
+}
+
+interface StarShellConfig {
+  name: string;
+  count: number;
+  seedOffset: number;
+  minRadius: number;
+  maxRadius: number;
+  minSize: number;
+  maxSize: number;
+  minLuma: number;
+  maxLuma: number;
+  flareThreshold: number;
+  flareStrength: number;
+  parallaxFactor: number;
+}
+
+/**
+ * Builds a single spherical shell of 3D stars using a custom circular radial
+ * ShaderMaterial (strictly discarding outside the unit circle so zero box/square
+ * artifacts can ever render) with true perspective size attenuation.
+ */
+function createStarShell(
+  cfg: StarShellConfig,
+  dpr: number,
+): {
+  points: THREE.Points;
+  material: THREE.ShaderMaterial;
+  parallaxFactor: number;
+} {
+  const positions = new Float32Array(cfg.count * 3);
+  const colors = new Float32Array(cfg.count * 3);
+  const sizes = new Float32Array(cfg.count);
+  const phases = new Float32Array(cfg.count);
+  const flares = new Float32Array(cfg.count);
+
+  const palette = [
+    new THREE.Color('#ffffff'), // Pure starlight white
+    new THREE.Color('#d6e8ff'), // Crisp celestial ice-blue
+    new THREE.Color('#ffecc8'), // Warm golden-white giant
+    new THREE.Color('#e6dcff'), // Soft lavender-silver
+    new THREE.Color('#bef2ff'), // Subtle cyan-white
+  ];
+
+  for (let i = 0; i < cfg.count; i++) {
+    const seed = cfg.seedOffset + i * 13.37;
+    const r1 = seededRandom(seed + 1.1);
+    const r2 = seededRandom(seed + 2.3);
+    const r3 = seededRandom(seed + 3.7);
+    const r4 = seededRandom(seed + 5.1);
+    const r5 = seededRandom(seed + 7.9);
+
+    const theta = r1 * Math.PI * 2;
+    const uniformCosPhi = 2 * r2 - 1;
+    // Gently concentrate ~35% of stars toward a tilted galactic band
+    const inBand = i % 3 === 0;
+    const cosPhi = inBand
+      ? THREE.MathUtils.clamp(uniformCosPhi * 0.44, -0.98, 0.98)
+      : uniformCosPhi;
+    const sinPhi = Math.sqrt(Math.max(0, 1 - cosPhi * cosPhi));
+
+    const radius =
+      cfg.minRadius + Math.pow(r3, 0.85) * (cfg.maxRadius - cfg.minRadius);
+    // Power curve so fine pinpoint stars are numerous and giant beacons are rare
+    const sizeCurve = Math.pow(r4, 2.6);
+    const baseSize = cfg.minSize + sizeCurve * (cfg.maxSize - cfg.minSize);
+    const flare = r4 > cfg.flareThreshold ? cfg.flareStrength : 0.0;
+
+    const rawX = radius * sinPhi * Math.cos(theta);
+    const rawY = radius * cosPhi;
+    const rawZ = radius * sinPhi * Math.sin(theta);
+
+    // Tilt galactic plane by ~28 degrees
+    const tilt = 0.48;
+    const cosT = Math.cos(tilt);
+    const sinT = Math.sin(tilt);
+    positions[i * 3] = rawX;
+    positions[i * 3 + 1] = rawY * cosT - rawZ * sinT;
+    positions[i * 3 + 2] = rawY * sinT + rawZ * cosT;
+
+    const baseCol = palette[Math.floor(r5 * palette.length)];
+    const luma = cfg.minLuma + Math.pow(r4, 1.3) * (cfg.maxLuma - cfg.minLuma);
+    colors[i * 3] = baseCol.r * luma;
+    colors[i * 3 + 1] = baseCol.g * luma;
+    colors[i * 3 + 2] = baseCol.b * luma;
+
+    sizes[i] = baseSize;
+    phases[i] = r1 * Math.PI * 2 + r3 * 30.0;
+    flares[i] = flare;
+  }
+
+  const starGeo = new THREE.BufferGeometry();
+  starGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  starGeo.setAttribute('aColor', new THREE.BufferAttribute(colors, 3));
+  starGeo.setAttribute('aSize', new THREE.BufferAttribute(sizes, 1));
+  starGeo.setAttribute('aPhase', new THREE.BufferAttribute(phases, 1));
+  starGeo.setAttribute('aFlare', new THREE.BufferAttribute(flares, 1));
+
+  const material = new THREE.ShaderMaterial({
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    uniforms: {
+      uTime: { value: 0.0 },
+      uPixelRatio: { value: dpr },
+      uNightBoost: { value: 0.0 },
+    },
+    vertexShader: /* glsl */ `
+      attribute vec3 aColor;
+      attribute float aSize;
+      attribute float aPhase;
+      attribute float aFlare;
+
+      varying vec3 vColor;
+      varying float vTwinkle;
+      varying float vFlare;
+      varying float vDepthFade;
+
+      uniform float uTime;
+      uniform float uPixelRatio;
+      uniform float uNightBoost;
+
+      void main() {
+        vColor = aColor;
+        vFlare = aFlare;
+
+        vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+        float dist = max(0.8, -mvPosition.z);
+
+        // Organic per-star scintillation
+        float speed = 1.2 + fract(aPhase * 0.37) * 2.1;
+        float wave = sin(uTime * speed + aPhase) * 0.5 + 0.5;
+        vTwinkle = mix(0.64, 1.0, wave) * (1.0 + uNightBoost * 0.2);
+
+        // Fade out smoothly if camera zooms extremely close to a foreground mote
+        // and subtly attenuate ultra-distant stars for natural atmospheric depth cue
+        float nearFade = smoothstep(1.1, 2.8, dist);
+        float farAtten = clamp(1.18 - dist * 0.012, 0.48, 1.0);
+        vDepthFade = nearFade * farAtten;
+
+        // Perspective size attenuation
+        float perspectiveScale = 36.0 / dist;
+        float pointSize = aSize * perspectiveScale * uPixelRatio * (0.9 + 0.14 * wave);
+        gl_PointSize = clamp(pointSize, 1.8 * uPixelRatio, 18.0 * uPixelRatio);
+
+        gl_Position = projectionMatrix * mvPosition;
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      varying vec3 vColor;
+      varying float vTwinkle;
+      varying float vFlare;
+      varying float vDepthFade;
+
+      void main() {
+        // Map point sprite UV from [0,1] to [-1,1] radial coordinates
+        vec2 uv = gl_PointCoord * 2.0 - 1.0;
+        float r = length(uv);
+
+        // Strictly discard outside unit circle — prevents any square/box corners
+        if (r > 1.0) discard;
+
+        // Smooth circular airy disk core + soft radial halo
+        float core = exp(-r * r * 15.0);
+        float halo = exp(-r * r * 4.2) * 0.52;
+        float radialEdge = 1.0 - smoothstep(0.62, 1.0, r);
+
+        // Delicate celestial cross-flare on bright beacon stars only
+        float spikeX = exp(-abs(uv.y) * 18.0) * exp(-abs(uv.x) * 3.4);
+        float spikeY = exp(-abs(uv.x) * 18.0) * exp(-abs(uv.y) * 3.4);
+        float spikes = (spikeX + spikeY) * vFlare * 0.42;
+
+        float alpha = (core + halo + spikes) * radialEdge * vTwinkle * vDepthFade;
+        vec3 finalCol = mix(vColor, vec3(1.0), core * 0.7);
+
+        gl_FragColor = vec4(finalCol, clamp(alpha, 0.0, 1.0));
+      }
+    `,
+  });
+
+  const points = new THREE.Points(starGeo, material);
+  points.name = cfg.name;
+  points.renderOrder = -8;
+  return { points, material, parallaxFactor: cfg.parallaxFactor };
+}
+
+/**
+ * Creates the open-space starry cosmos environment for the Sect World:
+ * 1. Deep cosmos shader dome with smooth nebula wisps & galactic band (zero blocky grid stars).
+ * 2. 3-Layer 3D parallax starfield (`near`, `mid`, `deep` shells) with round radial point shaders
+ *    and multi-plane rotational + radial depth parallax.
+ * 3. Rich, opaque glowing purple/blue planetary atmosphere (`ATMOSPHERE_OUTER_RADIUS`) that
+ *    veils background stars behind the planet's sky and encloses all clouds, rain, snow,
+ *    and hot air balloons.
+ */
 export function createRoomEnvironment(
-  envMap: THREE.Texture,
+  _envMap?: THREE.Texture,
 ): RoomEnvironmentHandles {
   const group = new THREE.Group();
 
-  const walnutTex = createWalnutTextures();
-  const linenTex = createLinenTextures();
-  const chalkTex = createChalkyWindowsillTextures();
-
   // ---------------------------------------------------------------------------
-  // 1. LAVENDER EVENING SKY BACKDROP (smoothly transitions Day -> Twilight -> Night)
+  // 1. DEEP COSMOS SKY DOME (Smooth Nebula Gradients & Galactic Dust Band)
   // ---------------------------------------------------------------------------
-  const skyGeo = new THREE.SphereGeometry(28, 48, 32);
+  const skyGeo = new THREE.SphereGeometry(52, 64, 48);
   const skyMaterial = new THREE.ShaderMaterial({
     side: THREE.BackSide,
     depthWrite: false,
@@ -40,419 +243,193 @@ export function createRoomEnvironment(
       uTime: { value: 0.0 },
     },
     vertexShader: /* glsl */ `
-      varying vec3 vWorldPos;
-      varying vec2 vUv;
+      varying vec3 vLocalPos;
       void main() {
-        vUv = uv;
+        vLocalPos = position;
         vec4 wp = modelMatrix * vec4(position, 1.0);
-        vWorldPos = wp.xyz;
         gl_Position = projectionMatrix * viewMatrix * wp;
       }
     `,
     fragmentShader: /* glsl */ `
-      varying vec3 vWorldPos;
-      varying vec2 vUv;
+      varying vec3 vLocalPos;
       uniform float uDayFactor;
       uniform float uTwilightFactor;
       uniform float uNightFactor;
       uniform float uTime;
 
-      float hash(vec2 p) {
-        return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
+      float hash(vec3 p) {
+        p = fract(p * vec3(443.897, 441.423, 437.195));
+        p += dot(p, p.yzx + 19.19);
+        return fract((p.x + p.y) * p.z);
+      }
+
+      float noise3D(vec3 p) {
+        vec3 i = floor(p);
+        vec3 f = fract(p);
+        f = f * f * (3.0 - 2.0 * f);
+
+        float n000 = hash(i + vec3(0.0, 0.0, 0.0));
+        float n100 = hash(i + vec3(1.0, 0.0, 0.0));
+        float n010 = hash(i + vec3(0.0, 1.0, 0.0));
+        float n110 = hash(i + vec3(1.0, 1.0, 0.0));
+        float n001 = hash(i + vec3(0.0, 0.0, 0.0));
+        float n101 = hash(i + vec3(1.0, 0.0, 1.0));
+        float n011 = hash(i + vec3(0.0, 1.0, 1.0));
+        float n111 = hash(i + vec3(1.0, 1.0, 1.0));
+
+        float nx00 = mix(n000, n100, f.x);
+        float nx10 = mix(n010, n110, f.x);
+        float nx01 = mix(n001, n101, f.x);
+        float nx11 = mix(n011, n111, f.x);
+
+        float nxy0 = mix(nx00, nx10, f.y);
+        float nxy1 = mix(nx01, nx11, f.y);
+
+        return mix(nxy0, nxy1, f.z);
       }
 
       void main() {
-        vec3 dir = normalize(vWorldPos);
-        float h = clamp(dir.y * 0.65 + 0.35, 0.0, 1.0);
+        vec3 dir = normalize(vLocalPos);
+        float h = clamp(dir.y * 0.5 + 0.5, 0.0, 1.0);
 
-        // Evening Lavender Sky (Default / Day state)
-        vec3 dayBottom = vec3(0.88, 0.76, 0.84); // Warm rosy-lavender horizon
-        vec3 dayMid    = vec3(0.68, 0.60, 0.79); // Soft lavender evening sky
-        vec3 dayTop    = vec3(0.45, 0.39, 0.61); // Deeper twilight violet zenith
-        vec3 dayCol = mix(dayBottom, dayMid, smoothstep(0.0, 0.48, h));
-        dayCol = mix(dayCol, dayTop, smoothstep(0.48, 1.0, h));
+        // Deep cosmic void base gradient
+        vec3 daySpaceBottom = vec3(0.036, 0.050, 0.106);
+        vec3 daySpaceTop    = vec3(0.012, 0.018, 0.048);
+        vec3 daySpace = mix(daySpaceBottom, daySpaceTop, smoothstep(0.0, 1.0, h));
 
-        // Blue Twilight Sky
-        vec3 twiBottom = vec3(0.56, 0.45, 0.66); // Warm dusk band
-        vec3 twiMid    = vec3(0.24, 0.31, 0.52); // Deep cobalt-blue twilight
-        vec3 twiTop    = vec3(0.12, 0.16, 0.32); // Indigo zenith
-        vec3 twiCol = mix(twiBottom, twiMid, smoothstep(0.0, 0.45, h));
-        twiCol = mix(twiCol, twiTop, smoothstep(0.45, 1.0, h));
+        vec3 twiSpaceBottom = vec3(0.046, 0.038, 0.102);
+        vec3 twiSpaceTop    = vec3(0.010, 0.014, 0.042);
+        vec3 twiSpace = mix(twiSpaceBottom, twiSpaceTop, smoothstep(0.0, 1.0, h));
 
-        // Night Sky
-        vec3 nightBottom = vec3(0.12, 0.14, 0.25);
-        vec3 nightMid    = vec3(0.07, 0.09, 0.17);
-        vec3 nightTop    = vec3(0.03, 0.04, 0.09);
-        vec3 nightCol = mix(nightBottom, nightMid, smoothstep(0.0, 0.45, h));
-        nightCol = mix(nightCol, nightTop, smoothstep(0.45, 1.0, h));
+        vec3 nightSpaceBottom = vec3(0.018, 0.024, 0.056);
+        vec3 nightSpaceTop    = vec3(0.005, 0.008, 0.022);
+        vec3 nightSpace = mix(nightSpaceBottom, nightSpaceTop, smoothstep(0.0, 1.0, h));
 
-        vec3 sky = dayCol * uDayFactor + twiCol * uTwilightFactor + nightCol * uNightFactor;
+        vec3 sky = daySpace * uDayFactor + twiSpace * uTwilightFactor + nightSpace * uNightFactor;
 
-        // Subtle distant stars in twilight/night
-        float starVisibility = clamp(uNightFactor + uTwilightFactor * 0.4, 0.0, 1.0);
-        if (starVisibility > 0.01 && dir.y > -0.05) {
-          vec2 grid = floor(vUv * vec2(260.0, 130.0));
-          float n = hash(grid);
-          if (n > 0.992) {
-            float twinkle = 0.6 + 0.4 * sin(uTime * 2.5 + n * 80.0);
-            sky += vec3(0.92, 0.95, 1.0) * twinkle * starVisibility * smoothstep(-0.05, 0.25, dir.y);
-          }
-        }
+        // Tilted galactic dust band & soft multi-octave nebula clouds
+        vec3 galDir = vec3(dir.x, dir.y * 0.88 - dir.z * 0.46, dir.y * 0.46 + dir.z * 0.88);
+        float galacticBand = exp(-galDir.y * galDir.y * 7.0);
+
+        float neb1 = noise3D(dir * 2.4 + vec3(0.0, uTime * 0.003, 0.0));
+        float neb2 = noise3D(dir * 4.8 - vec3(uTime * 0.002, 0.0, 0.0));
+        float neb3 = noise3D(dir * 9.5);
+        float nebulaCloud = smoothstep(0.38, 0.84, neb1 * 0.55 + neb2 * 0.30 + neb3 * 0.15);
+
+        vec3 nebulaAmethyst = vec3(0.15, 0.09, 0.28);
+        vec3 nebulaTeal     = vec3(0.05, 0.17, 0.26);
+        vec3 nebulaRose     = vec3(0.20, 0.11, 0.22);
+        vec3 nebulaTint = mix(nebulaAmethyst, nebulaTeal, smoothstep(0.25, 0.75, neb2));
+        nebulaTint = mix(nebulaTint, nebulaRose, uTwilightFactor * 0.45);
+
+        sky += nebulaTint * nebulaCloud * (0.16 + 0.15 * galacticBand);
+        sky += vec3(0.06, 0.08, 0.16) * galacticBand * neb1 * 0.32;
 
         gl_FragColor = vec4(sky, 1.0);
       }
     `,
   });
   const skyMesh = new THREE.Mesh(skyGeo, skyMaterial);
+  skyMesh.name = 'spaceSkyDome';
+  skyMesh.renderOrder = -10;
   group.add(skyMesh);
 
   // ---------------------------------------------------------------------------
-  // 2. CHALKY WHITE WINDOWSILL & WINDOW CASING
+  // 2. 3-LAYER 3D PARALLAX STARFIELD (Foreground Motes, Mid Stars, Deep Cosmos)
   // ---------------------------------------------------------------------------
-  const sillGroup = new THREE.Group();
-  const chalkMat = new THREE.MeshStandardMaterial({
-    map: chalkTex.map,
-    bumpMap: chalkTex.bumpMap,
-    bumpScale: 0.014,
-    color: new THREE.Color('#f5f1ea'),
-    roughness: 0.89,
-    metalness: 0.01,
-  });
+  const dpr =
+    typeof window !== 'undefined'
+      ? Math.min(window.devicePixelRatio || 1, 2)
+      : 1;
 
-  // Main deep windowsill board
-  const mainSillGeo = new THREE.BoxGeometry(11.5, 0.26, 4.4);
-  const mainSill = new THREE.Mesh(mainSillGeo, chalkMat);
-  mainSill.position.set(0, -2.21, 0.15);
-  mainSill.receiveShadow = true;
-  sillGroup.add(mainSill);
+  const starfieldGroup = new THREE.Group();
+  starfieldGroup.name = 'parallaxStarfield';
 
-  // Classic rounded front bullnose molding along windowsill front edge
-  const bullnoseGeo = new THREE.CylinderGeometry(0.13, 0.13, 11.5, 24);
-  bullnoseGeo.rotateZ(Math.PI / 2);
-  const bullnose = new THREE.Mesh(bullnoseGeo, chalkMat);
-  bullnose.position.set(0, -2.21, 2.35);
-  bullnose.receiveShadow = true;
-  sillGroup.add(bullnose);
-
-  // Lower apron trim under windowsill
-  const apronGeo = new THREE.BoxGeometry(11.2, 0.55, 0.22);
-  const apron = new THREE.Mesh(apronGeo, chalkMat);
-  apron.position.set(0, -2.6, 2.15);
-  apron.receiveShadow = true;
-  sillGroup.add(apron);
-
-  // Subtle back window frame lower rail & vertical muntin bar to ground the windowsill
-  const backRailGeo = new THREE.BoxGeometry(11.5, 0.22, 0.28);
-  const backRail = new THREE.Mesh(backRailGeo, chalkMat);
-  backRail.position.set(0, -1.98, -1.92);
-  backRail.receiveShadow = true;
-  sillGroup.add(backRail);
-
-  const leftJambGeo = new THREE.BoxGeometry(0.45, 9.0, 0.36);
-  const leftJamb = new THREE.Mesh(leftJambGeo, chalkMat);
-  leftJamb.position.set(-4.6, 2.4, -1.92);
-  sillGroup.add(leftJamb);
-
-  const rightJamb = new THREE.Mesh(leftJambGeo, chalkMat);
-  rightJamb.position.set(4.6, 2.4, -1.92);
-  sillGroup.add(rightJamb);
-
-  group.add(sillGroup);
-
-  // ---------------------------------------------------------------------------
-  // 3. FOLDED LINEN CLOTH (Woven texture + natural stacked folds)
-  // ---------------------------------------------------------------------------
-  const linenGroup = new THREE.Group();
-  const linenMat = new THREE.MeshStandardMaterial({
-    map: linenTex.map,
-    bumpMap: linenTex.bumpMap,
-    bumpScale: 0.026,
-    color: new THREE.Color('#eae1d3'),
-    roughness: 0.93,
-    metalness: 0.0,
-  });
-
-  // Helper to create soft-edged cloth fold layer
-  const createClothFold = (
-    w: number,
-    h: number,
-    d: number,
-    y: number,
-    rotY: number,
-    offsetX: number,
-    offsetZ: number,
-  ) => {
-    const geo = new THREE.BoxGeometry(w, h, d, 20, 2, 20);
-    const pos = geo.attributes.position;
-    const v = new THREE.Vector3();
-    for (let i = 0; i < pos.count; i++) {
-      v.fromBufferAttribute(pos, i);
-      // Soften corners & add organic linen ripple
-      const edgeX = Math.abs(v.x) / (w * 0.5);
-      const edgeZ = Math.abs(v.z) / (d * 0.5);
-      const edgeFactor = Math.max(edgeX, edgeZ);
-      if (edgeFactor > 0.85 && v.y > 0) {
-        v.y *= 1.0 - (edgeFactor - 0.85) * 4.2;
-      }
-      const wave =
-        Math.sin(v.x * 3.2 + v.z * 2.1) * 0.008 +
-        Math.cos(v.z * 4.5) * 0.005;
-      v.y += wave;
-      pos.setXYZ(i, v.x, v.y, v.z);
-    }
-    geo.computeVertexNormals();
-    const mesh = new THREE.Mesh(geo, linenMat);
-    mesh.position.set(offsetX, y, offsetZ);
-    mesh.rotation.y = rotY;
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    return mesh;
-  };
-
-  // Bottom fold
-  linenGroup.add(createClothFold(3.35, 0.036, 2.25, -2.062, 0.09, 0.55, 0.18));
-  // Middle fold
-  linenGroup.add(createClothFold(3.12, 0.034, 2.02, -2.032, -0.05, 0.48, 0.14));
-  // Top fold
-  linenGroup.add(createClothFold(2.86, 0.032, 1.84, -2.004, 0.04, 0.42, 0.11));
-
-  // Decorative woven stripe band along the top fold edge
-  const stripeMat = new THREE.MeshStandardMaterial({
-    map: linenTex.map,
-    bumpMap: linenTex.bumpMap,
-    bumpScale: 0.028,
-    color: new THREE.Color('#c4b49d'),
-    roughness: 0.94,
-  });
-  const stripeGeo = new THREE.BoxGeometry(2.84, 0.034, 0.12);
-  const stripeMesh = new THREE.Mesh(stripeGeo, stripeMat);
-  stripeMesh.position.set(0.42, -2.002, 0.82);
-  stripeMesh.rotation.y = 0.04;
-  stripeMesh.receiveShadow = true;
-  linenGroup.add(stripeMesh);
-
-  group.add(linenGroup);
-
-  // ---------------------------------------------------------------------------
-  // 4. SMALL POTTED SUCCULENT (Fleshy leaves in ceramic/terracotta pot)
-  // ---------------------------------------------------------------------------
-  const succulentGroup = new THREE.Group();
-  succulentGroup.position.set(1.92, -1.99, 0.42);
-
-  // Turned small stoneware/terracotta pot
-  const potPoints = [
-    new THREE.Vector2(0.0, 0.0),
-    new THREE.Vector2(0.23, 0.0),
-    new THREE.Vector2(0.28, 0.18),
-    new THREE.Vector2(0.32, 0.38),
-    new THREE.Vector2(0.34, 0.42),
-    new THREE.Vector2(0.34, 0.47),
-    new THREE.Vector2(0.29, 0.47),
-    new THREE.Vector2(0.27, 0.39),
-    new THREE.Vector2(0.0, 0.39),
-  ];
-  const potGeo = new THREE.LatheGeometry(potPoints, 32);
-  const potMat = new THREE.MeshStandardMaterial({
-    color: new THREE.Color('#d48c6a'), // Warm terracotta clay
-    roughness: 0.68,
-    metalness: 0.04,
-  });
-  const potMesh = new THREE.Mesh(potGeo, potMat);
-  potMesh.castShadow = true;
-  potMesh.receiveShadow = true;
-  succulentGroup.add(potMesh);
-
-  // Soil bed
-  const soilGeo = new THREE.CylinderGeometry(0.28, 0.26, 0.06, 24);
-  const soilMat = new THREE.MeshStandardMaterial({
-    color: new THREE.Color('#3b2d23'),
-    roughness: 0.95,
-  });
-  const soilMesh = new THREE.Mesh(soilGeo, soilMat);
-  soilMesh.position.y = 0.4;
-  succulentGroup.add(soilMesh);
-
-  // Fleshy Echeveria Succulent Leaves (3 concentric spiral whorls)
-  const createFleshyLeaf = (length: number, width: number, thickness: number) => {
-    const geo = new THREE.SphereGeometry(1, 16, 12);
-    const pos = geo.attributes.position;
-    const colors: number[] = [];
-    const baseCol = new THREE.Color('#6fa37c'); // Fleshy sage jade
-    const midCol = new THREE.Color('#86b890'); // Plump pale green center
-    const tipCol = new THREE.Color('#b86b77'); // Warm rosy-blush leaf tip
-    const v = new THREE.Vector3();
-
-    for (let i = 0; i < pos.count; i++) {
-      v.fromBufferAttribute(pos, i);
-      // Map z from [-1..1] to [0..1] along leaf length
-      const t = (v.z + 1) * 0.5;
-      // Plump spoon-like profile: narrow at base, wide near 70% length, pointed at tip
-      const widthProfile = Math.sin(Math.pow(t, 0.75) * Math.PI) * (0.45 + 0.65 * t);
-      const thickProfile = Math.sin(t * Math.PI) * (1.1 - 0.35 * t);
-
-      v.x *= width * widthProfile;
-      v.y *= thickness * thickProfile;
-      // Cupped upper surface and rounded keel underneath
-      if (v.y > 0) {
-        v.y *= 0.65;
-      }
-      v.y += Math.pow(t, 1.8) * 0.055; // Gentle upward curl at tip
-      v.z = t * length;
-
-      pos.setXYZ(i, v.x, v.y, v.z);
-
-      const c = baseCol.clone().lerp(midCol, Math.min(1, t * 1.3));
-      if (t > 0.72) {
-        c.lerp(tipCol, (t - 0.72) / 0.28);
-      }
-      colors.push(c.r, c.g, c.b);
-    }
-    geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-    geo.computeVertexNormals();
-    return geo;
-  };
-
-  const leafMat = new THREE.MeshPhysicalMaterial({
-    vertexColors: true,
-    roughness: 0.38,
-    metalness: 0.0,
-    clearcoat: 0.18,
-    clearcoatRoughness: 0.45,
-    sheen: 0.35,
-    sheenColor: new THREE.Color('#cde6d3'),
-  });
-
-  const whorls = [
-    { count: 9, radius: 0.05, len: 0.29, wid: 0.12, thk: 0.052, pitch: 0.22, y: 0.43 },
-    { count: 7, radius: 0.03, len: 0.22, wid: 0.1, thk: 0.048, pitch: 0.52, y: 0.46 },
-    { count: 5, radius: 0.015, len: 0.14, wid: 0.075, thk: 0.042, pitch: 0.88, y: 0.49 },
+  const shells = [
+    // Foreground-mid cosmic dust & nearby starlets: strongest parallax response
+    createStarShell(
+      {
+        name: 'starShellNear',
+        count: 190,
+        seedOffset: 101.0,
+        minRadius: 3.4,
+        maxRadius: 7.8,
+        minSize: 0.7,
+        maxSize: 1.9,
+        minLuma: 0.48,
+        maxLuma: 0.88,
+        flareThreshold: 0.88,
+        flareStrength: 0.5,
+        parallaxFactor: 0.62,
+      },
+      dpr,
+    ),
+    // Mid-space star shell: balanced parallax and crisp medium-bright stars
+    createStarShell(
+      {
+        name: 'starShellMid',
+        count: 520,
+        seedOffset: 503.0,
+        minRadius: 8.5,
+        maxRadius: 19.5,
+        minSize: 1.2,
+        maxSize: 3.4,
+        minLuma: 0.58,
+        maxLuma: 0.96,
+        flareThreshold: 0.82,
+        flareStrength: 0.85,
+        parallaxFactor: 0.36,
+      },
+      dpr,
+    ),
+    // Deep-cosmos background shell: hundreds of fine pinpricks + rare bright beacons
+    createStarShell(
+      {
+        name: 'starShellDeep',
+        count: 840,
+        seedOffset: 1207.0,
+        minRadius: 21.0,
+        maxRadius: 42.0,
+        minSize: 1.3,
+        maxSize: 5.2,
+        minLuma: 0.42,
+        maxLuma: 1.0,
+        flareThreshold: 0.93,
+        flareStrength: 1.0,
+        parallaxFactor: 0.16,
+      },
+      dpr,
+    ),
   ];
 
-  whorls.forEach((w, wIdx) => {
-    const leafGeo = createFleshyLeaf(w.len, w.wid, w.thk);
-    for (let i = 0; i < w.count; i++) {
-      const angle = (i / w.count) * Math.PI * 2 + wIdx * 0.55;
-      const leaf = new THREE.Mesh(leafGeo, leafMat);
-      leaf.position.set(
-        Math.sin(angle) * w.radius,
-        w.y,
-        Math.cos(angle) * w.radius,
-      );
-      leaf.rotation.order = 'YXZ';
-      leaf.rotation.y = angle;
-      leaf.rotation.x = -w.pitch;
-      leaf.castShadow = true;
-      leaf.receiveShadow = true;
-      succulentGroup.add(leaf);
-    }
-  });
-
-  group.add(succulentGroup);
+  for (const shell of shells) {
+    starfieldGroup.add(shell.points);
+  }
+  group.add(starfieldGroup);
 
   // ---------------------------------------------------------------------------
-  // 5. TURNED WALNUT STAND WITH BRASS COLLAR
+  // 3. OPAQUE GLOWING PURPLE/BLUE PLANETARY ATMOSPHERE (Enclosing Weather & Sky)
   // ---------------------------------------------------------------------------
-  const standGroup = new THREE.Group();
-
-  // Turned walnut wood base (from y = -1.99 up to y = -1.42)
-  const walnutPoints = [
-    new THREE.Vector2(0.0, -1.99),
-    new THREE.Vector2(0.88, -1.99), // Wide stable base foot
-    new THREE.Vector2(0.91, -1.95), // Foot bead
-    new THREE.Vector2(0.86, -1.90),
-    new THREE.Vector2(0.72, -1.84), // Lower cove curve
-    new THREE.Vector2(0.56, -1.74), // Turned waist
-    new THREE.Vector2(0.64, -1.65), // Center torus ring
-    new THREE.Vector2(0.58, -1.57), // Upper neck cove
-    new THREE.Vector2(0.71, -1.49), // Upper flare supporting brass collar
-    new THREE.Vector2(0.68, -1.44),
-    new THREE.Vector2(0.52, -1.44), // Inner cradle recess
-    new THREE.Vector2(0.0, -1.52),
-  ];
-  const walnutGeo = new THREE.LatheGeometry(walnutPoints, 64);
-  const walnutMat = new THREE.MeshStandardMaterial({
-    map: walnutTex.map,
-    bumpMap: walnutTex.bumpMap,
-    bumpScale: 0.018,
-    roughness: 0.36,
-    metalness: 0.06,
-    envMap,
-    envMapIntensity: 0.55,
-  });
-  const walnutMesh = new THREE.Mesh(walnutGeo, walnutMat);
-  walnutMesh.castShadow = true;
-  walnutMesh.receiveShadow = true;
-  standGroup.add(walnutMesh);
-
-  // Turned Brass Collar cradling the glass orb (around y = -1.45 to -1.28)
-  // At y = -1.33, the orb of radius 1.50 has horizontal radius sqrt(1.5^2 - 1.33^2) = 0.69
-  const brassPoints = [
-    new THREE.Vector2(0.54, -1.46),
-    new THREE.Vector2(0.71, -1.46),
-    new THREE.Vector2(0.75, -1.41), // Lower brass bead
-    new THREE.Vector2(0.73, -1.35), // Tapered brass collar wall
-    new THREE.Vector2(0.76, -1.30), // Rolled upper brass rim
-    new THREE.Vector2(0.71, -1.28), // Top lip hugging glass orb
-    new THREE.Vector2(0.67, -1.33), // Inner wall against glass
-    new THREE.Vector2(0.54, -1.44),
-  ];
-  const brassGeo = new THREE.LatheGeometry(brassPoints, 64);
-  const brassMat = new THREE.MeshStandardMaterial({
-    color: new THREE.Color('#deb868'),
-    metalness: 0.88,
-    roughness: 0.22,
-    envMap,
-    envMapIntensity: 1.2,
-  });
-  const brassMesh = new THREE.Mesh(brassGeo, brassMat);
-  brassMesh.castShadow = true;
-  brassMesh.receiveShadow = true;
-  standGroup.add(brassMesh);
-
-  group.add(standGroup);
-
-  // ---------------------------------------------------------------------------
-  // 6. 30CM CLEAR GLASS ORB (Radius = 1.50 = 30cm across)
-  //    Features:
-  //    - Visible glass wall thickness (double shell + green borosilicate rim)
-  //    - Faint green edges at grazing angles
-  //    - Curved window reflection on upper-left surface
-  //    - Leaves the central miniature village completely clear and inspectable
-  // ---------------------------------------------------------------------------
-  const orbGroup = new THREE.Group();
-
-  // Inner glass wall (BackSide) for physical depth cue
-  const innerGlassGeo = new THREE.SphereGeometry(1.46, 64, 64);
-  const innerGlassMat = new THREE.MeshPhysicalMaterial({
-    color: new THREE.Color('#dcfaee'),
+  // Uses NormalBlending at renderOrder = -5 (after stars at -8, before weather/sun at 0)
+  // with high opacity (up to ~0.92 in the troposphere band) so the atmosphere has a
+  // rich, creamy, opaque glow that veils background stars behind the planet's sky
+  // while keeping the terrain and foreground clouds/sun 100% crisp.
+  const rimGeo = new THREE.SphereGeometry(ATMOSPHERE_OUTER_RADIUS, 64, 64);
+  const atmosphereRimMaterial = new THREE.ShaderMaterial({
     transparent: true,
-    opacity: 0.06,
-    roughness: 0.08,
-    metalness: 0.0,
+    depthWrite: false,
+    depthTest: true,
     side: THREE.BackSide,
-    depthWrite: false,
-    envMap,
-    envMapIntensity: 0.4,
-  });
-  const innerGlassMesh = new THREE.Mesh(innerGlassGeo, innerGlassMat);
-  innerGlassMesh.renderOrder = 10;
-  orbGroup.add(innerGlassMesh);
-
-  // Outer custom shader shell: visible glass thickness band, faint green edges,
-  // and curved 4-pane evening window reflection on the upper-left curve
-  const outerGlassGeo = new THREE.SphereGeometry(1.5, 96, 96);
-  const orbGlassMaterial = new THREE.ShaderMaterial({
-    transparent: true,
-    depthWrite: false,
-    side: THREE.FrontSide,
+    blending: THREE.NormalBlending,
     uniforms: {
       uDayFactor: { value: 1.0 },
       uTwilightFactor: { value: 0.0 },
       uNightFactor: { value: 0.0 },
+      uWeatherIntensity: { value: 0.35 },
+      uTime: { value: 0.0 },
     },
     vertexShader: /* glsl */ `
       varying vec3 vNormalWorld;
-      varying vec3 vNormalView;
       varying vec3 vViewDir;
       varying vec3 vWorldPos;
 
@@ -460,16 +437,111 @@ export function createRoomEnvironment(
         vec4 worldPosition = modelMatrix * vec4(position, 1.0);
         vWorldPos = worldPosition.xyz;
         vNormalWorld = normalize(mat3(modelMatrix) * normal);
-        vNormalView = normalize(normalMatrix * normal);
         vViewDir = normalize(cameraPosition - worldPosition.xyz);
         gl_Position = projectionMatrix * viewMatrix * worldPosition;
       }
     `,
     fragmentShader: /* glsl */ `
       varying vec3 vNormalWorld;
-      varying vec3 vNormalView;
       varying vec3 vViewDir;
       varying vec3 vWorldPos;
+
+      uniform float uDayFactor;
+      uniform float uTwilightFactor;
+      uniform float uNightFactor;
+      uniform float uWeatherIntensity;
+      uniform float uTime;
+
+      void main() {
+        vec3 N = normalize(vNormalWorld);
+        vec3 V = normalize(vViewDir);
+        float viewDot = abs(dot(N, V));
+
+        // Radial fraction from planet center:
+        // 0.0 at center -> ~0.64 at planet terrain limb -> 1.0 at outer atmosphere edge
+        float radialFrac = sqrt(clamp(1.0 - viewDot * viewDot, 0.0, 1.0));
+
+        // Dense opaque atmospheric body from the planet surface (0.56) through the cloud/weather zone (0.88),
+        // feathering smoothly into space at the outer boundary (0.88..1.0)
+        float innerRise = smoothstep(0.50, 0.64, radialFrac);
+        float coreBody  = 1.0 - smoothstep(0.83, 0.995, radialFrac);
+        float rimGlow   = smoothstep(0.68, 0.86, radialFrac) * (1.0 - smoothstep(0.88, 1.0, radialFrac));
+
+        // Subtle animated upper-atmosphere shimmer
+        vec3 dir = normalize(vWorldPos);
+        float wave = sin(dir.x * 5.0 + uTime * 0.3) * cos(dir.y * 4.5 - uTime * 0.22) * 0.5 + 0.5;
+        float weatherBoost = 1.0 + uWeatherIntensity * 0.12;
+
+        // Luminous opaque cerulean-blue lower troposphere -> rich glowing purple/indigo stratosphere
+        vec3 dayHorizon = vec3(0.46, 0.72, 1.00);
+        vec3 dayMid     = vec3(0.40, 0.50, 0.96);
+        vec3 dayOuter   = vec3(0.46, 0.34, 0.90);
+
+        vec3 twiHorizon = vec3(0.54, 0.56, 0.98);
+        vec3 twiMid     = vec3(0.48, 0.40, 0.94);
+        vec3 twiOuter   = vec3(0.54, 0.32, 0.88);
+
+        vec3 nightHorizon = vec3(0.32, 0.50, 0.92);
+        vec3 nightMid     = vec3(0.30, 0.36, 0.86);
+        vec3 nightOuter   = vec3(0.36, 0.24, 0.78);
+
+        vec3 horizonCol = dayHorizon * uDayFactor + twiHorizon * uTwilightFactor + nightHorizon * uNightFactor;
+        vec3 midCol     = dayMid     * uDayFactor + twiMid     * uTwilightFactor + nightMid     * uNightFactor;
+        vec3 outerCol   = dayOuter   * uDayFactor + twiOuter   * uTwilightFactor + nightOuter   * uNightFactor;
+
+        float tMid = smoothstep(0.60, 0.78, radialFrac);
+        float tOut = smoothstep(0.76, 0.95, radialFrac) * (0.85 + 0.15 * wave);
+        vec3 atmoColor = mix(horizonCol, midCol, tMid);
+        atmoColor = mix(atmoColor, outerCol, tOut);
+
+        // Boost emissive-like radiance in the heart of the sky band so the opaque medium glows warmly
+        atmoColor *= (1.06 + rimGlow * 0.22) * weatherBoost;
+
+        // High opacity (~0.88-0.93) in the sky band so stars behind the atmosphere are veiled
+        float opacity = clamp((innerRise * coreBody * 0.90 + rimGlow * 0.24) * weatherBoost, 0.0, 0.94);
+
+        gl_FragColor = vec4(atmoColor, opacity);
+      }
+    `,
+  });
+
+  const atmosphereRimMesh = new THREE.Mesh(rimGeo, atmosphereRimMaterial);
+  atmosphereRimMesh.name = 'atmosphereRimHalo';
+  atmosphereRimMesh.renderOrder = -5;
+  group.add(atmosphereRimMesh);
+
+  // Secondary additive bloom shell right around the troposphere cloud-layer
+  // to give the opaque atmosphere a radiant, velvety inner halo
+  const innerTroposphereGeo = new THREE.SphereGeometry(
+    0.75 * PLANET_SCALE * 1.38,
+    48,
+    48,
+  );
+  const innerTroposphereMaterial = new THREE.ShaderMaterial({
+    transparent: true,
+    depthWrite: false,
+    depthTest: true,
+    side: THREE.BackSide,
+    blending: THREE.AdditiveBlending,
+    uniforms: {
+      uDayFactor: { value: 1.0 },
+      uTwilightFactor: { value: 0.0 },
+      uNightFactor: { value: 0.0 },
+    },
+    vertexShader: /* glsl */ `
+      varying vec3 vNormalWorld;
+      varying vec3 vViewDir;
+
+      void main() {
+        vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+        vNormalWorld = normalize(mat3(modelMatrix) * normal);
+        vViewDir = normalize(cameraPosition - worldPosition.xyz);
+        gl_Position = projectionMatrix * viewMatrix * worldPosition;
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      varying vec3 vNormalWorld;
+      varying vec3 vViewDir;
 
       uniform float uDayFactor;
       uniform float uTwilightFactor;
@@ -478,112 +550,97 @@ export function createRoomEnvironment(
       void main() {
         vec3 N = normalize(vNormalWorld);
         vec3 V = normalize(vViewDir);
-        vec3 R = reflect(-V, N);
+        float viewDot = abs(dot(N, V));
+        float radialFrac = sqrt(clamp(1.0 - viewDot * viewDot, 0.0, 1.0));
 
-        float ndotv = clamp(dot(N, V), 0.0, 1.0);
-        float fresnel = pow(1.0 - ndotv, 3.2);
+        // Luminous inner glow peaking between the horizon and cloud tops
+        float band = smoothstep(0.58, 0.80, radialFrac) * smoothstep(1.0, 0.78, radialFrac);
+        vec3 col = vec3(0.45, 0.66, 1.00) * uDayFactor
+                 + vec3(0.58, 0.46, 0.98) * uTwilightFactor
+                 + vec3(0.36, 0.46, 0.92) * uNightFactor;
 
-        // 1. Visible glass thickness ring: double-stepped rim at the outer 4% of radius
-        //    ndotv near 0.0..0.32 corresponds to the physical glass wall thickness
-        float outerEdge = smoothstep(0.34, 0.04, ndotv);
-        float innerWallStep = smoothstep(0.28, 0.22, ndotv) * (1.0 - smoothstep(0.22, 0.14, ndotv));
-
-        // Faint soda-lime / borosilicate green edge tint
-        vec3 glassGreen = mix(
-          vec3(0.72, 0.94, 0.84),
-          vec3(0.55, 0.85, 0.78),
-          uNightFactor * 0.5
-        );
-
-        // 2. Curved Window Reflection on the upper-left surface of the orb
-        //    We map view-space normal (vNormalView) so the curved window reflection
-        //    gracefully hugs the upper-left curvature while keeping the center clear!
-        vec2 vn = vNormalView.xy;
-        // Transform into tilted curved window coordinates on upper-left quadrant
-        vec2 winCenter = vec2(-0.46, 0.42);
-        vec2 p = vn - winCenter;
-        // Slight spherical warp
-        float r2 = dot(vn, vn);
-        p.x += vn.y * 0.14;
-        p.y -= vn.x * 0.10;
-
-        // Window outer bounds
-        float inWinX = smoothstep(0.29, 0.25, abs(p.x));
-        float inWinY = smoothstep(0.33, 0.28, abs(p.y));
-        float windowMask = inWinX * inWinY;
-
-        // Window muntin crossbars (4 panes)
-        float mullionX = smoothstep(0.012, 0.024, abs(p.x));
-        float mullionY = smoothstep(0.014, 0.026, abs(p.y));
-        float panes = windowMask * mullionX * mullionY;
-
-        // Soft vertical falloff across the window reflection
-        float paneGrad = smoothstep(-0.32, 0.32, p.y) * 0.45 + 0.55;
-        float windowReflection = panes * paneGrad;
-
-        // Secondary subtle opposite-side bottom-right warm bounce reflection
-        vec2 bounceP = vn - vec2(0.55, -0.48);
-        float bounceHighlight = exp(-dot(bounceP, bounceP) * 18.0) * 0.22;
-
-        // Specular sun/sky pinpoint highlight
-        vec3 lightDir = normalize(vec3(-0.6, 0.75, 0.5));
-        float spec = pow(max(dot(R, lightDir), 0.0), 90.0) * 0.45;
-
-        // Tint window reflection based on time of day
-        vec3 winColorDay = vec3(1.0, 0.96, 0.91);
-        vec3 winColorTwi = vec3(0.78, 0.84, 1.0);
-        vec3 winColorNight = vec3(0.48, 0.62, 0.88);
-        vec3 winColor = winColorDay * uDayFactor + winColorTwi * uTwilightFactor + winColorNight * uNightFactor;
-
-        // Combine color and alpha — center stays crystal clear (alpha ~ 0.015)
-        vec3 col = glassGreen * (outerEdge * 0.85 + innerWallStep * 0.55);
-        col = mix(col, winColor, clamp(windowReflection * 1.3 + spec, 0.0, 1.0));
-        col += vec3(0.95, 0.88, 0.80) * bounceHighlight;
-
-        float alpha =
-          fresnel * 0.34 +
-          outerEdge * 0.22 +
-          innerWallStep * 0.18 +
-          windowReflection * (0.36 * uDayFactor + 0.28 * uTwilightFactor + 0.18 * uNightFactor) +
-          bounceHighlight * 0.18 +
-          spec * 0.35 +
-          0.012;
-
-        // Keep bottom contact inside brass collar slightly darker/grounded
-        float collarMask = smoothstep(-1.42, -1.22, vWorldPos.y);
-        alpha *= mix(0.65, 1.0, collarMask);
-
-        gl_FragColor = vec4(col, clamp(alpha, 0.0, 0.78));
+        gl_FragColor = vec4(col, clamp(band * 0.42, 0.0, 0.46));
       }
     `,
   });
+  const innerTroposphereMesh = new THREE.Mesh(
+    innerTroposphereGeo,
+    innerTroposphereMaterial,
+  );
+  innerTroposphereMesh.name = 'innerTroposphereHalo';
+  innerTroposphereMesh.renderOrder = -4;
+  group.add(innerTroposphereMesh);
 
-  const outerGlassMesh = new THREE.Mesh(outerGlassGeo, orbGlassMaterial);
-  outerGlassMesh.renderOrder = 20;
-  orbGroup.add(outerGlassMesh);
-
-  group.add(orbGroup);
+  const identityQuat = new THREE.Quaternion();
+  const ambientDriftQuat = new THREE.Quaternion();
+  const ambientEuler = new THREE.Euler();
+  const targetShellQuat = new THREE.Quaternion();
 
   const updateTimeOfDay = (
     dayFactor: number,
     twilightFactor: number,
     nightFactor: number,
     elapsedTime: number,
+    planetQuaternion?: THREE.Quaternion,
+    weatherIntensity = 0.35,
   ) => {
     skyMaterial.uniforms.uDayFactor.value = dayFactor;
     skyMaterial.uniforms.uTwilightFactor.value = twilightFactor;
     skyMaterial.uniforms.uNightFactor.value = nightFactor;
     skyMaterial.uniforms.uTime.value = elapsedTime;
 
-    orbGlassMaterial.uniforms.uDayFactor.value = dayFactor;
-    orbGlassMaterial.uniforms.uTwilightFactor.value = twilightFactor;
-    orbGlassMaterial.uniforms.uNightFactor.value = nightFactor;
+    const nightBoost = nightFactor + twilightFactor * 0.5;
+
+    // Gentle celestial drift combined with multi-plane rotational parallax when the globe spins
+    for (let i = 0; i < shells.length; i++) {
+      const shell = shells[i];
+      shell.material.uniforms.uTime.value = elapsedTime;
+      shell.material.uniforms.uNightBoost.value = nightBoost;
+
+      const driftSpeed = (0.004 + i * 0.0025) * elapsedTime;
+      ambientEuler.set(
+        Math.sin(elapsedTime * 0.003 + i) * 0.025,
+        driftSpeed,
+        0,
+      );
+      ambientDriftQuat.setFromEuler(ambientEuler);
+
+      if (planetQuaternion) {
+        targetShellQuat
+          .copy(identityQuat)
+          .slerp(planetQuaternion, shell.parallaxFactor)
+          .multiply(ambientDriftQuat);
+        shell.points.quaternion.slerp(targetShellQuat, 0.18);
+      } else {
+        shell.points.quaternion.copy(ambientDriftQuat);
+      }
+    }
+
+    // Subtle deep-cosmos parallax on the nebula sky dome itself
+    if (planetQuaternion) {
+      targetShellQuat
+        .copy(identityQuat)
+        .slerp(planetQuaternion, 0.1)
+        .multiply(ambientDriftQuat);
+      skyMesh.quaternion.slerp(targetShellQuat, 0.12);
+    }
+
+    atmosphereRimMaterial.uniforms.uDayFactor.value = dayFactor;
+    atmosphereRimMaterial.uniforms.uTwilightFactor.value = twilightFactor;
+    atmosphereRimMaterial.uniforms.uNightFactor.value = nightFactor;
+    atmosphereRimMaterial.uniforms.uWeatherIntensity.value = weatherIntensity;
+    atmosphereRimMaterial.uniforms.uTime.value = elapsedTime;
+
+    innerTroposphereMaterial.uniforms.uDayFactor.value = dayFactor;
+    innerTroposphereMaterial.uniforms.uTwilightFactor.value = twilightFactor;
+    innerTroposphereMaterial.uniforms.uNightFactor.value = nightFactor;
   };
 
   return {
     group,
-    orbGlassMaterial,
+    atmosphereRimMaterial,
     skyMaterial,
+    starfieldPoints: starfieldGroup,
     updateTimeOfDay,
   };
 }

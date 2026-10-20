@@ -203,44 +203,34 @@ export function createRoomEnvTexture(): THREE.CanvasTexture {
   canvas.height = height;
   const ctx = canvas.getContext('2d')!;
 
+  // Celestial space & atmospheric horizon reflection gradient for water and metallic surfaces
   const grad = ctx.createLinearGradient(0, 0, 0, height);
-  grad.addColorStop(0.0, '#7c6d9c');
-  grad.addColorStop(0.42, '#b9a3c9');
-  grad.addColorStop(0.55, '#d6c3b8');
-  grad.addColorStop(1.0, '#423632');
+  grad.addColorStop(0.0, '#162044');
+  grad.addColorStop(0.38, '#2d4678');
+  grad.addColorStop(0.54, '#6aa2cc');
+  grad.addColorStop(0.72, '#28395c');
+  grad.addColorStop(1.0, '#0b1022');
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, width, height);
 
-  const winX = width * 0.22;
-  const winY = height * 0.22;
-  const winW = width * 0.16;
-  const winH = height * 0.28;
-
+  // Soft celestial nebula & starlight sheen (no indoor window panes)
   const glow = ctx.createRadialGradient(
-    winX + winW * 0.5,
-    winY + winH * 0.5,
-    6,
-    winX + winW * 0.5,
-    winY + winH * 0.5,
-    winW * 1.4,
+    width * 0.35,
+    height * 0.32,
+    8,
+    width * 0.35,
+    height * 0.32,
+    width * 0.38,
   );
-  glow.addColorStop(0, 'rgba(255, 238, 214, 0.75)');
-  glow.addColorStop(0.5, 'rgba(235, 205, 225, 0.28)');
-  glow.addColorStop(1, 'rgba(180, 160, 200, 0)');
+  glow.addColorStop(0, 'rgba(255, 244, 214, 0.55)');
+  glow.addColorStop(0.45, 'rgba(135, 195, 255, 0.24)');
+  glow.addColorStop(1, 'rgba(40, 60, 120, 0)');
   ctx.fillStyle = glow;
   ctx.fillRect(0, 0, width, height);
-
-  ctx.fillStyle = 'rgba(255, 247, 235, 0.85)';
-  const gap = 5;
-  const pw = (winW - gap) / 2;
-  const ph = (winH - gap) / 2;
-  ctx.fillRect(winX, winY, pw, ph);
-  ctx.fillRect(winX + pw + gap, winY, pw, ph);
-  ctx.fillRect(winX, winY + ph + gap, pw, ph);
-  ctx.fillRect(winX + pw + gap, winY + ph + gap, pw, ph);
 
   const envTex = new THREE.CanvasTexture(canvas);
   envTex.mapping = THREE.EquirectangularReflectionMapping;
   envTex.colorSpace = THREE.SRGBColorSpace;
   return envTex;
 }
+

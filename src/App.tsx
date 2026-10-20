@@ -32,6 +32,8 @@ import {
   Waves,
   Wind,
   X,
+  ZoomIn,
+  ZoomOut,
 } from 'lucide-react';
 import { PocketWorldController } from './three/PocketWorldScene';
 import {
@@ -205,6 +207,14 @@ export default function App() {
     controllerRef.current?.applyCameraPreset(view);
   };
 
+  const handleZoomIn = () => {
+    controllerRef.current?.zoomByFactor(0.84);
+  };
+
+  const handleZoomOut = () => {
+    controllerRef.current?.zoomByFactor(1.18);
+  };
+
   const handleSelectTimeMode = (mode: TimeMode) => {
     controllerRef.current?.setTimeMode(mode);
   };
@@ -227,21 +237,21 @@ export default function App() {
   );
 
   return (
-    <div className="flex w-screen h-screen overflow-hidden select-none bg-[#221d2b]">
+    <div className="flex w-screen h-screen overflow-hidden select-none bg-[#070913]">
       {/* Left Column: 3D Three.js Canvas Viewport */}
       <div className="relative flex-1 min-w-0 h-full">
         <div
           ref={mountRef}
-          className="w-full h-full cursor-grab active:cursor-grabbing"
-          aria-label="Interactive 3D Pocket World Terrarium Planet"
+          className="w-full h-full cursor-grab active:cursor-grabbing touch-none"
+          aria-label="Interactive 3D Sect World in Space"
         />
 
         {/* WebGL Context Lost Fallback */}
         {webglLost && (
-          <div className="absolute inset-0 z-50 flex items-center justify-center bg-[#231e2d]/90 text-[#faf6ee]">
-            <div className="max-w-md p-6 text-center bg-[#322b3f] rounded-xl border border-white/10">
+          <div className="absolute inset-0 z-50 flex items-center justify-center bg-[#070913]/95 text-[#faf6ee]">
+            <div className="max-w-md p-6 text-center bg-[#141829] rounded-xl border border-white/10">
               <h2 className="text-xl font-semibold mb-2">
-                Terrarium Viewport Paused
+                Sect World Viewport Paused
               </h2>
               <p className="text-sm text-[#d6cee2]">
                 The 3D WebGL context was interrupted. Reload or restore the tab
@@ -255,7 +265,7 @@ export default function App() {
       {/* Right Column: Desktop Thin Icon-Only Side Panel (Hidden on mobile and during 30s Tour) */}
       {!worldState.tourActive && (
         <aside
-          aria-label="Terrarium controls and tool dock"
+          aria-label="Sect world controls and tool dock"
           className="hidden md:flex w-16 shrink-0 h-full bg-[#faf5ec] border-l border-[#e2d7c5] text-[#382f27] flex-col items-center py-3 gap-2.5 z-20"
         >
           <button
@@ -432,15 +442,37 @@ export default function App() {
                 </button>
               </section>
 
-              {/* 3. Camera Views */}
+              {/* 3. Camera Views & Zoom */}
               <section className="flex flex-col gap-1.5">
-                <h3 className="text-[11px] font-semibold uppercase tracking-wider text-[#7a6b5a]">
-                  Camera View
-                </h3>
+                <div className="flex items-center justify-between">
+                  <h3 className="text-[11px] font-semibold uppercase tracking-wider text-[#7a6b5a]">
+                    Camera View
+                  </h3>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={handleZoomOut}
+                      aria-label="Zoom Out"
+                      title="Zoom Out (-)"
+                      className="w-7 h-7 flex items-center justify-center rounded-lg bg-[#f3ede2] text-[#594d40] hover:bg-[#eae1d3] hover:text-[#2b221b] transition-colors cursor-pointer"
+                    >
+                      <ZoomOut className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleZoomIn}
+                      aria-label="Zoom In"
+                      title="Zoom In (+)"
+                      className="w-7 h-7 flex items-center justify-center rounded-lg bg-[#f3ede2] text-[#594d40] hover:bg-[#eae1d3] hover:text-[#2b221b] transition-colors cursor-pointer"
+                    >
+                      <ZoomIn className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
                 <div className="grid grid-cols-2 gap-1.5">
                   {(
                     [
-                      { id: 'orb', label: 'Orb' },
+                      { id: 'orb', label: 'Globe' },
                       { id: 'surface', label: 'Surface' },
                       { id: 'orbit', label: 'Orbit' },
                       { id: 'village', label: 'Village' },
@@ -524,7 +556,7 @@ export default function App() {
       {!worldState.tourActive && (
         <div
           aria-label="Mobile tool dock"
-          className="md:hidden fixed bottom-0 left-0 right-0 z-30 bg-[#faf5ec]/95 backdrop-blur-md border-t border-[#e2d7c5] px-3 py-2.5 flex items-center gap-2.5"
+          className="md:hidden fixed bottom-0 left-0 right-0 z-30 bg-[#faf5ec] border-t border-[#e2d7c5] px-3 py-2.5 flex items-center gap-2.5"
         >
           <button
             type="button"
@@ -646,15 +678,35 @@ export default function App() {
                 </button>
               </section>
 
-              {/* Camera View */}
+              {/* Camera View & Zoom */}
               <section className="flex flex-col gap-1.5">
-                <h3 className="text-[11px] font-semibold uppercase tracking-wider text-[#7a6b5a]">
-                  Camera View
-                </h3>
+                <div className="flex items-center justify-between">
+                  <h3 className="text-[11px] font-semibold uppercase tracking-wider text-[#7a6b5a]">
+                    Camera View
+                  </h3>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={handleZoomOut}
+                      aria-label="Zoom Out"
+                      className="min-w-[44px] min-h-[36px] px-2.5 flex items-center justify-center rounded-lg bg-[#f3ede2] text-[#594d40] hover:bg-[#eae1d3] hover:text-[#2b221b] transition-colors cursor-pointer"
+                    >
+                      <ZoomOut className="w-4 h-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleZoomIn}
+                      aria-label="Zoom In"
+                      className="min-w-[44px] min-h-[36px] px-2.5 flex items-center justify-center rounded-lg bg-[#f3ede2] text-[#594d40] hover:bg-[#eae1d3] hover:text-[#2b221b] transition-colors cursor-pointer"
+                    >
+                      <ZoomIn className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
                 <div className="grid grid-cols-2 gap-1.5">
                   {(
                     [
-                      { id: 'orb', label: 'Orb' },
+                      { id: 'orb', label: 'Globe' },
                       { id: 'surface', label: 'Surface' },
                       { id: 'orbit', label: 'Orbit' },
                       { id: 'village', label: 'Village' },

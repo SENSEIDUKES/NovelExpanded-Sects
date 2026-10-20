@@ -37,6 +37,15 @@ import {
 } from './MiniatureObjects';
 import { createPlanetTerrain } from './PlanetTerrain';
 import { createRoomEnvironment } from './RoomEnvironment';
+import {
+  computeCameraPoseForZoom,
+  computeNextPinchZoomDistance,
+  computeNextWheelZoomDistance,
+  getCameraPresetConfig,
+  MAX_ZOOM_DIST,
+  MIN_ZOOM_DIST,
+  PLANET_SCALE,
+} from './cameraZoomRig';
 
 const UP_VEC = new THREE.Vector3(0, 1, 0);
 
@@ -113,15 +122,24 @@ export class PocketWorldController {
   private lastPointerPos = new THREE.Vector2();
   private angularVelocity = new THREE.Vector2(0.0, 0.0);
 
+  // Multi-touch pinch-to-zoom state
+  private activePointers = new Map<number, THREE.Vector2>();
+  private isPinching = false;
+  private lastPinchDist = 0;
+  private pinchCooldownUntil = 0;
+
   // Initial 3-second 360-degree intro spin state
   private introSpinActive = true;
   private introSpinElapsed = 0;
 
-  // Camera choreography
+  // Camera choreography & continuous zoom/tilt rig
+  private camAnchorDir = new THREE.Vector3(-1.12, 0.78, 4.35).normalize();
+  private camBaseLook = new THREE.Vector3(0.04, -0.08, 0.0);
+  private targetZoomDist = 4.65;
   private camCurrentPos = new THREE.Vector3(-1.12, 0.78, 4.35);
-  private camCurrentLook = new THREE.Vector3(0.08, -0.22, 0.0);
+  private camCurrentLook = new THREE.Vector3(0.04, -0.08, 0.0);
   private camTargetPos = new THREE.Vector3(-1.12, 0.78, 4.35);
-  private camTargetLook = new THREE.Vector3(0.08, -0.22, 0.0);
+  private camTargetLook = new THREE.Vector3(0.04, -0.08, 0.0);
 
   // 30-Second Choreographed Demo Tour state
   private tourActive = false;
@@ -166,32 +184,32 @@ export class PocketWorldController {
 
     this.scene = new THREE.Scene();
 
-    // Camera framed slightly above and to the left so the 30cm orb (3.0 units diameter)
-    // fills approximately 60% of the viewport height.
-    this.camera = new THREE.PerspectiveCamera(38, width / height, 0.08, 60);
+    // Camera framed for the 1.2x scaled Sect World suspended in space,
+    // with near clipping plane at 0.04 for intimate close-up inspection.
+    this.camera = new THREE.PerspectiveCamera(38, width / height, 0.04, 80);
     this.applyCameraPreset('orb', true);
 
     const envMap = createRoomEnvTexture();
     this.scene.environment = envMap;
 
-    // 1. Domestic Room Environment (Windowsill, Linen Cloth, Succulent, Walnut Stand, Brass Collar, Glass Orb)
+    // 1. Starry Cosmos & Atmospheric Rim Environment (replaces domestic room & glass orb)
     this.roomEnv = createRoomEnvironment(envMap);
     this.scene.add(this.roomEnv.group);
 
-    // 2. Room Lighting (Warm evening window light + subdued interior fill)
-    this.roomAmbientLight = new THREE.AmbientLight('#f2e6dc', 0.55);
+    // 2. Celestial Space Fill & Key Lighting
+    this.roomAmbientLight = new THREE.AmbientLight('#eae4f7', 0.56);
     this.scene.add(this.roomAmbientLight);
 
-    this.roomHemiLight = new THREE.HemisphereLight('#dcd0f0', '#5e4b3e', 0.52);
+    this.roomHemiLight = new THREE.HemisphereLight('#d6dcff', '#3d3552', 0.54);
     this.scene.add(this.roomHemiLight);
 
-    this.roomWindowLight = new THREE.DirectionalLight('#ffdfb8', 1.35);
+    this.roomWindowLight = new THREE.DirectionalLight('#ffe4c4', 1.32);
     this.roomWindowLight.position.set(-4.8, 4.6, 3.8);
     this.roomWindowLight.castShadow = true;
     this.roomWindowLight.shadow.mapSize.set(2048, 2048);
     this.roomWindowLight.shadow.camera.near = 1.0;
-    this.roomWindowLight.shadow.camera.far = 15.0;
-    const d = 3.2;
+    this.roomWindowLight.shadow.camera.far = 16.0;
+    const d = 3.6;
     this.roomWindowLight.shadow.camera.left = -d;
     this.roomWindowLight.shadow.camera.right = d;
     this.roomWindowLight.shadow.camera.top = d;
@@ -199,8 +217,9 @@ export class PocketWorldController {
     this.roomWindowLight.shadow.bias = -0.0005;
     this.scene.add(this.roomWindowLight);
 
-    // 3. Suspended Faceted Planet Root (Centered inside the glass orb at (0,0,0))
+    // 3. Suspended Faceted Sect World Root (Scaled by 20% -> PLANET_SCALE = 1.2)
     this.planetRoot = new THREE.Group();
+    this.planetRoot.scale.setScalar(PLANET_SCALE);
     this.scene.add(this.planetRoot);
 
     this.terrain = createPlanetTerrain();
@@ -298,13 +317,13 @@ export class PocketWorldController {
     this.sunGroup.add(sunHalo);
     this.planetRoot.add(this.sunGroup);
 
-    // Little sun directional light casting moving shadows across the planet
+    // Little sun directional light casting moving shadows across the 1.2x planet
     this.sunLight = new THREE.DirectionalLight('#fff0c2', 1.9);
     this.sunLight.castShadow = true;
     this.sunLight.shadow.mapSize.set(1024, 1024);
     this.sunLight.shadow.camera.near = 0.2;
-    this.sunLight.shadow.camera.far = 3.5;
-    const sd = 1.05;
+    this.sunLight.shadow.camera.far = 4.2;
+    const sd = 1.32;
     this.sunLight.shadow.camera.left = -sd;
     this.sunLight.shadow.camera.right = sd;
     this.sunLight.shadow.camera.top = sd;
@@ -1175,7 +1194,7 @@ export class PocketWorldController {
       .crossVectors(normDir, randVec)
       .normalize();
 
-    const baseAltitude = 1.02 + Math.random() * 0.1;
+    const baseAltitude = 0.94 + Math.random() * 0.06; // Inside the purple/blue troposphere layer
     group.position.copy(normDir).multiplyScalar(baseAltitude);
     group.quaternion.setFromUnitVectors(UP_VEC, normDir);
     this.atmosphereGroup.add(group);
@@ -1211,7 +1230,7 @@ export class PocketWorldController {
       .crossVectors(normDir, randVec)
       .normalize();
 
-    const altitude = 1.22;
+    const altitude = 1.1; // Streaking through the upper purple/blue stratosphere
     mesh.position.copy(normDir).multiplyScalar(altitude);
     this.atmosphereGroup.add(mesh);
 
@@ -1491,7 +1510,7 @@ export class PocketWorldController {
       .crossVectors(normDir, randVec)
       .normalize();
 
-    const altitude = 1.09 + Math.random() * 0.07; // Suspended inside the 1.50 glass orb above 0.75 planet
+    const altitude = 0.98 + Math.random() * 0.05; // Suspended inside the purple/blue planetary atmosphere
     group.position.copy(normDir).multiplyScalar(altitude);
     group.quaternion.setFromUnitVectors(UP_VEC, normDir);
     this.atmosphereGroup.add(group);
@@ -1564,7 +1583,8 @@ export class PocketWorldController {
     geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
 
     const mat = new THREE.PointsMaterial({
-      size: 0.032,
+      size: 0.04,
+      map: this.firefliesMat.map,
       vertexColors: true,
       transparent: true,
       opacity: 1.0,
@@ -1898,32 +1918,40 @@ export class PocketWorldController {
     }));
   }
 
-  public applyCameraPreset(view: CameraViewId, immediate = false) {
-    this.activeView = view;
-    if (view === 'orb') {
-      // Slightly above and to the left, orb filling ~60% of image height
-      this.camTargetPos.set(-1.12, 0.78, 4.35);
-      this.camTargetLook.set(0.08, -0.22, 0.0);
-    } else if (view === 'surface') {
-      // Low horizon-skimming view across coastal beach, sea, and hills
-      this.camTargetPos.set(0.62, 0.22, 1.44);
-      this.camTargetLook.set(-0.12, 0.24, 0.62);
-    } else if (view === 'orbit') {
-      // Centered close planetary view for sculpting & building
-      this.camTargetPos.set(0.0, 0.32, 2.58);
-      this.camTargetLook.set(0.0, 0.0, 0.0);
-    } else if (view === 'village') {
-      // Intimate village-level view inspecting roof tiles, chimney rims, fence rails, and sails
-      this.camTargetPos.set(-0.26, 0.34, 1.42);
-      this.camTargetLook.set(-0.16, 0.18, 0.74);
-    }
-
+  private syncCameraTargetsFromZoom(immediate = false) {
+    computeCameraPoseForZoom(
+      this.camAnchorDir,
+      this.camBaseLook,
+      this.targetZoomDist,
+      this.camTargetPos,
+      this.camTargetLook,
+    );
     if (immediate) {
       this.camCurrentPos.copy(this.camTargetPos);
       this.camCurrentLook.copy(this.camTargetLook);
       this.camera.position.copy(this.camCurrentPos);
       this.camera.lookAt(this.camCurrentLook);
     }
+  }
+
+  public zoomByFactor(factor: number) {
+    if (this.tourActive) return;
+    this.introSpinActive = false;
+    this.targetZoomDist = THREE.MathUtils.clamp(
+      this.targetZoomDist * factor,
+      MIN_ZOOM_DIST,
+      MAX_ZOOM_DIST,
+    );
+    this.syncCameraTargetsFromZoom(false);
+  }
+
+  public applyCameraPreset(view: CameraViewId, immediate = false) {
+    this.activeView = view;
+    const preset = getCameraPresetConfig(view);
+    this.camAnchorDir.copy(preset.anchorDir);
+    this.camBaseLook.copy(preset.baseLookAt);
+    this.targetZoomDist = preset.defaultDistance;
+    this.syncCameraTargetsFromZoom(immediate);
 
     this.onStateChange((prev) => ({ ...prev, activeView: view }));
   }
@@ -1962,8 +1990,8 @@ export class PocketWorldController {
     this.timeOfDay = 0.22;
     this.tourCursorDir.set(-0.16, 0.22, 0.96).normalize();
 
-    this.camTargetPos.set(-0.85, 0.65, 4.15);
-    this.camTargetLook.set(0.0, -0.10, 0.0);
+    this.camTargetPos.set(-0.85, 0.65, 4.15).multiplyScalar(PLANET_SCALE);
+    this.camTargetLook.set(0.0, -0.10, 0.0).multiplyScalar(PLANET_SCALE);
     this.camCurrentPos.copy(this.camTargetPos);
     this.camCurrentLook.copy(this.camTargetLook);
     this.camera.position.copy(this.camCurrentPos);
@@ -2555,6 +2583,10 @@ export class PocketWorldController {
         THREE.MathUtils.lerp(0.25, 0.0, p),
       );
     }
+
+    // Scale tour camera framing to match the 1.2x Sect World radius
+    this.camTargetPos.multiplyScalar(PLANET_SCALE);
+    this.camTargetLook.multiplyScalar(PLANET_SCALE);
   }
 
   private syncWorldStats() {
@@ -2612,6 +2644,7 @@ export class PocketWorldController {
 
   private bindEvents() {
     const dom = this.renderer.domElement;
+    dom.style.touchAction = 'none';
     const raycaster = new THREE.Raycaster();
     const pointerNDC = new THREE.Vector2();
 
@@ -2636,9 +2669,34 @@ export class PocketWorldController {
       return null;
     };
 
+    const getActivePinchDistance = (): number => {
+      const pts = Array.from(this.activePointers.values());
+      if (pts.length < 2) return 0;
+      return pts[0].distanceTo(pts[1]);
+    };
+
     const onPointerDown = (e: PointerEvent) => {
-      if (e.button !== 0 && e.button !== 2) return;
+      if (e.pointerType === 'mouse' && e.button !== 0 && e.button !== 2) return;
       if (this.tourActive) return;
+
+      this.activePointers.set(
+        e.pointerId,
+        new THREE.Vector2(e.clientX, e.clientY),
+      );
+
+      if (this.activePointers.size >= 2) {
+        // Switch immediately to mobile two-finger pinch-to-zoom mode
+        this.isPinching = true;
+        this.isDraggingSpin = false;
+        this.isPointerDown = false;
+        this.angularVelocity.set(0, 0);
+        this.cursorRing.visible = false;
+        this.lastPinchDist = getActivePinchDistance();
+        return;
+      }
+
+      if (performance.now() < this.pinchCooldownUntil) return;
+
       this.isPointerDown = true;
       this.isDraggingSpin = false;
       this.pointerDownPos.set(e.clientX, e.clientY);
@@ -2649,8 +2707,36 @@ export class PocketWorldController {
       if (this.tourActive) {
         return;
       }
+
+      if (this.activePointers.has(e.pointerId)) {
+        this.activePointers.get(e.pointerId)!.set(e.clientX, e.clientY);
+      }
+
+      // Handle mobile two-finger pinch-to-zoom
+      if (this.activePointers.size >= 2) {
+        this.isPinching = true;
+        this.introSpinActive = false;
+        this.cursorRing.visible = false;
+        const currentPinchDist = getActivePinchDistance();
+        if (this.lastPinchDist > 4 && currentPinchDist > 4) {
+          this.targetZoomDist = computeNextPinchZoomDistance(
+            this.targetZoomDist,
+            this.lastPinchDist,
+            currentPinchDist,
+          );
+          this.syncCameraTargetsFromZoom(false);
+        }
+        this.lastPinchDist = currentPinchDist;
+        return;
+      }
+
+      if (this.isPinching || performance.now() < this.pinchCooldownUntil) {
+        this.cursorRing.visible = false;
+        return;
+      }
+
       const hitDir = getTerrainHit(e);
-      if (hitDir && !this.isDraggingSpin) {
+      if (hitDir && !this.isDraggingSpin && e.pointerType !== 'touch') {
         this.cursorRing.visible = true;
         const surf = this.terrain.getSurfacePointAndNormal(hitDir);
         this.orientObjectOnSurface(
@@ -2679,20 +2765,45 @@ export class PocketWorldController {
       }
 
       if (this.isDraggingSpin) {
-        // Spin the planet with gentle inertia
-        this.angularVelocity.x = dx * 0.0055;
-        this.angularVelocity.y = dy * 0.0055;
+        // Spin the planet with gentle inertia (slightly finer control when zoomed in close)
+        const zoomSensitivityScale = THREE.MathUtils.clamp(
+          this.targetZoomDist / 3.4,
+          0.42,
+          1.0,
+        );
+        const spinStep = 0.0055 * zoomSensitivityScale;
+        this.angularVelocity.x = dx * spinStep;
+        this.angularVelocity.y = dy * spinStep;
         this.applyPlanetSpin(this.angularVelocity.x, this.angularVelocity.y);
       }
 
       this.lastPointerPos.set(e.clientX, e.clientY);
     };
 
-    const onPointerUp = (e: PointerEvent) => {
+    const onPointerUpOrCancel = (e: PointerEvent) => {
+      this.activePointers.delete(e.pointerId);
+
+      if (this.isPinching) {
+        if (this.activePointers.size < 2) {
+          this.lastPinchDist = 0;
+          this.pinchCooldownUntil = performance.now() + 180;
+        }
+        if (this.activePointers.size === 0) {
+          this.isPinching = false;
+        }
+        this.isPointerDown = false;
+        this.isDraggingSpin = false;
+        return;
+      }
+
       if (!this.isPointerDown) return;
       this.isPointerDown = false;
 
-      if (!this.isDraggingSpin && e.button === 0) {
+      if (
+        !this.isDraggingSpin &&
+        performance.now() >= this.pinchCooldownUntil &&
+        (e.pointerType !== 'mouse' || e.button === 0)
+      ) {
         const hitDir = getTerrainHit(e);
         if (hitDir) {
           this.handleSurfaceAction(hitDir);
@@ -2704,19 +2815,13 @@ export class PocketWorldController {
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       if (this.tourActive) return;
-      const zoomDir = this.camTargetPos
-        .clone()
-        .sub(this.camTargetLook)
-        .normalize();
-      const dist = this.camTargetPos.distanceTo(this.camTargetLook);
-      const nextDist = THREE.MathUtils.clamp(
-        dist + e.deltaY * 0.0022,
-        1.15,
-        5.6,
+      this.introSpinActive = false;
+      this.targetZoomDist = computeNextWheelZoomDistance(
+        this.targetZoomDist,
+        e.deltaY,
+        e.deltaMode,
       );
-      this.camTargetPos
-        .copy(this.camTargetLook)
-        .addScaledVector(zoomDir, nextDist);
+      this.syncCameraTargetsFromZoom(false);
     };
 
     const onResize = () => {
@@ -2736,12 +2841,17 @@ export class PocketWorldController {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && this.tourActive) {
         this.stopTour();
+      } else if (e.key === '=' || e.key === '+') {
+        this.zoomByFactor(0.88);
+      } else if (e.key === '-' || e.key === '_') {
+        this.zoomByFactor(1.14);
       }
     };
 
     dom.addEventListener('pointerdown', onPointerDown);
     window.addEventListener('pointermove', onPointerMove);
-    window.addEventListener('pointerup', onPointerUp);
+    window.addEventListener('pointerup', onPointerUpOrCancel);
+    window.addEventListener('pointercancel', onPointerUpOrCancel);
     dom.addEventListener('wheel', onWheel, { passive: false });
     window.addEventListener('resize', onResize);
     window.addEventListener('keydown', onKeyDown);
@@ -2751,7 +2861,8 @@ export class PocketWorldController {
       resizeObserver.disconnect();
       dom.removeEventListener('pointerdown', onPointerDown);
       window.removeEventListener('pointermove', onPointerMove);
-      window.removeEventListener('pointerup', onPointerUp);
+      window.removeEventListener('pointerup', onPointerUpOrCancel);
+      window.removeEventListener('pointercancel', onPointerUpOrCancel);
       dom.removeEventListener('wheel', onWheel);
       window.removeEventListener('resize', onResize);
       window.removeEventListener('keydown', onKeyDown);
@@ -2803,19 +2914,16 @@ export class PocketWorldController {
           const angle = progress * Math.PI * 2;
           this.planetRoot.quaternion.setFromAxisAngle(UP_VEC, angle);
         } else {
-          // Complete 360° turn, pause rotation, and zoom out a bit
+          // Complete 360° turn, pause rotation, and zoom out slightly for cosmic framing
           this.introSpinActive = false;
           this.planetRoot.quaternion.identity();
           this.angularVelocity.set(0, 0);
 
-          const zoomDir = this.camTargetPos
-            .clone()
-            .sub(this.camTargetLook)
-            .normalize();
-          const currentDist = this.camTargetPos.distanceTo(this.camTargetLook);
-          this.camTargetPos
-            .copy(this.camTargetLook)
-            .addScaledVector(zoomDir, currentDist * 1.14);
+          this.targetZoomDist = Math.min(
+            MAX_ZOOM_DIST,
+            this.targetZoomDist * 1.08,
+          );
+          this.syncCameraTargetsFromZoom(false);
         }
       }
     } else if (!this.isPointerDown && !this.tourActive) {
@@ -2910,7 +3018,19 @@ export class PocketWorldController {
     this.roomHemiLight.intensity =
       0.52 * dayFactor + 0.44 * twilightFactor + 0.28 * nightFactor;
 
-    this.roomEnv.updateTimeOfDay(dayFactor, twilightFactor, nightFactor, elapsed);
+    const activeRainOrSnowCount = this.clouds.filter((c) => c.isRaining).length;
+    const weatherIntensity = Math.min(
+      1.0,
+      0.25 + activeRainOrSnowCount * 0.25 + this.clouds.length * 0.06,
+    );
+    this.roomEnv.updateTimeOfDay(
+      dayFactor,
+      twilightFactor,
+      nightFactor,
+      elapsed,
+      this.planetRoot.quaternion,
+      weatherIntensity,
+    );
     this.terrain.update(elapsed, dt, nightFactor);
 
     // 6. Update Placed Objects (Bounce, Windmill, Windows, Lighthouse, Campfire, Watchtower Flag, Butterflies)
