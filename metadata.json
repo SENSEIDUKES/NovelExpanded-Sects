@@ -1,0 +1,8 @@
+{
+  "name": "NovelExpanded Sects",
+  "description": "A shared customizable diorama—a visual representation of the Sect.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
