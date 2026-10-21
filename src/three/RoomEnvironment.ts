@@ -14,6 +14,8 @@ export interface RoomEnvironmentHandles {
     planetQuaternion?: THREE.Quaternion,
     weatherIntensity?: number,
   ) => void;
+  /** Tint the glowing atmosphere for the active world type (white = untinted) */
+  setAtmosphereTint: (tint: THREE.Color) => void;
 }
 
 /**
@@ -427,6 +429,8 @@ export function createRoomEnvironment(
       uNightFactor: { value: 0.0 },
       uWeatherIntensity: { value: 0.35 },
       uTime: { value: 0.0 },
+      // World-type tint (white = untinted)
+      uTint: { value: new THREE.Color(1, 1, 1) },
     },
     vertexShader: /* glsl */ `
       varying vec3 vNormalWorld;
@@ -450,6 +454,7 @@ export function createRoomEnvironment(
       uniform float uTwilightFactor;
       uniform float uNightFactor;
       uniform float uWeatherIntensity;
+      uniform vec3 uTint;
       uniform float uTime;
 
       void main() {
@@ -500,7 +505,7 @@ export function createRoomEnvironment(
         // High opacity (~0.88-0.93) in the sky band so stars behind the atmosphere are veiled
         float opacity = clamp((innerRise * coreBody * 0.90 + rimGlow * 0.24) * weatherBoost, 0.0, 0.94);
 
-        gl_FragColor = vec4(atmoColor, opacity);
+        gl_FragColor = vec4(atmoColor * uTint, opacity);
       }
     `,
   });
@@ -527,6 +532,7 @@ export function createRoomEnvironment(
       uDayFactor: { value: 1.0 },
       uTwilightFactor: { value: 0.0 },
       uNightFactor: { value: 0.0 },
+      uTint: { value: new THREE.Color(1, 1, 1) },
     },
     vertexShader: /* glsl */ `
       varying vec3 vNormalWorld;
@@ -546,6 +552,7 @@ export function createRoomEnvironment(
       uniform float uDayFactor;
       uniform float uTwilightFactor;
       uniform float uNightFactor;
+      uniform vec3 uTint;
 
       void main() {
         vec3 N = normalize(vNormalWorld);
@@ -559,7 +566,7 @@ export function createRoomEnvironment(
                  + vec3(0.58, 0.46, 0.98) * uTwilightFactor
                  + vec3(0.36, 0.46, 0.92) * uNightFactor;
 
-        gl_FragColor = vec4(col, clamp(band * 0.42, 0.0, 0.46));
+        gl_FragColor = vec4(col * uTint, clamp(band * 0.42, 0.0, 0.46));
       }
     `,
   });
@@ -636,8 +643,15 @@ export function createRoomEnvironment(
     innerTroposphereMaterial.uniforms.uNightFactor.value = nightFactor;
   };
 
+  /** Tint the glowing atmosphere for the active world type (white = untinted) */
+  const setAtmosphereTint = (tint: THREE.Color) => {
+    atmosphereRimMaterial.uniforms.uTint.value.copy(tint);
+    innerTroposphereMaterial.uniforms.uTint.value.copy(tint);
+  };
+
   return {
     group,
+    setAtmosphereTint,
     atmosphereRimMaterial,
     skyMaterial,
     starfieldPoints: starfieldGroup,

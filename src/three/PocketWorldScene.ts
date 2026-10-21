@@ -39,6 +39,14 @@ import {
 import { createPlanetTerrain } from './PlanetTerrain';
 import { createRoomEnvironment } from './RoomEnvironment';
 import {
+  blendPalettes,
+  DEFAULT_WORLD_TYPE,
+  getWorldType,
+  ResolvedPalette,
+  resolvePalette,
+  WorldTypeId,
+} from './worldTypes';
+import {
   GlobeOrbit,
   globeQuaternion,
   radiansPerPixel,
@@ -55,6 +63,7 @@ import {
   PLANET_SCALE,
 } from './cameraZoomRig';
 
+const WORLD_FADE_SECONDS = 1.0;
 const UP_VEC = new THREE.Vector3(0, 1, 0);
 
 interface SparkleBurst {
@@ -139,6 +148,11 @@ export class PocketWorldController {
   private lastTapPos = new THREE.Vector2();
   // Planet-space spot grabbed by the current drag; kept under the pointer while it moves
   private grabbedLocalDir: THREE.Vector3 | null = null;
+
+  // World type (planet style); switching fades the colors over WORLD_FADE_SECONDS
+  private worldType: WorldTypeId = DEFAULT_WORLD_TYPE;
+  private worldPalette: ResolvedPalette = resolvePalette(getWorldType(DEFAULT_WORLD_TYPE).palette);
+  private worldFade: { from: ResolvedPalette; to: ResolvedPalette; elapsed: number } | null = null;
   private probeCamera = new THREE.PerspectiveCamera();
   private probeRaycaster = new THREE.Raycaster();
 
@@ -1748,6 +1762,32 @@ export class PocketWorldController {
     this.onStateChange((prev) => ({ ...prev, activeTool: tool }));
   }
 
+  /** Restyle the whole planet; the terrain shape and placed objects are untouched */
+  public setWorldType(id: WorldTypeId) {
+    if (id === this.worldType) return;
+    this.worldType = id;
+    const target = getWorldType(id);
+    this.worldFade = {
+      from: this.worldPalette,
+      to: resolvePalette(target.palette),
+      elapsed: 0,
+    };
+
+    // A shimmer of sparkles across the visible land as the colors change
+    for (let i = 0; i < 14; i++) {
+      const dir = new THREE.Vector3(
+        Math.random() * 2 - 1,
+        Math.random() * 2 - 1,
+        Math.random() * 2 - 1,
+      ).normalize();
+      if (!this.terrain.getSurfacePointAndNormal(dir).isWater) {
+        this.emitSparklesAtDir(dir, target.palette.shimmer);
+      }
+    }
+
+    this.onStateChange((prev) => ({ ...prev, worldType: id }));
+  }
+
   public setTimeMode(mode: TimeMode) {
     this.timeMode = mode;
     if (mode === 'day') {
@@ -2955,6 +2995,19 @@ export class PocketWorldController {
     if (!this.tourActive) {
       this.globe.update(dt);
       this.globe.writeQuaternion(this.planetRoot.quaternion);
+    }
+
+    // World-type color fade
+    if (this.worldFade) {
+      this.worldFade.elapsed += dt;
+      const t = Math.min(1, this.worldFade.elapsed / WORLD_FADE_SECONDS);
+      const eased = t * t * (3 - 2 * t);
+      this.worldPalette = blendPalettes(this.worldFade.from, this.worldFade.to, eased);
+      this.terrain.applyPalette(this.worldPalette);
+      this.roomEnv.setAtmosphereTint(this.worldPalette.atmosphereTint);
+      if (t >= 1) {
+        this.worldFade = null;
+      }
     }
 
     // 3. Smooth Camera Interpolation (same easing rate as globe transitions, so

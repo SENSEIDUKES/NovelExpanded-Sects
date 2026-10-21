@@ -40,6 +40,7 @@ import {
   ToolDefinition,
   ToolId,
 } from '../types/world';
+import { WORLD_TYPES, WorldTypeDefinition, WorldTypeId } from '../three/worldTypes';
 
 export type DockCategory = (typeof TOOL_CATEGORIES)[number]['id'];
 
@@ -146,10 +147,25 @@ const BUTTON_BASE =
 const BUTTON_IDLE =
   'bg-[#f3ede2] border-[#e2d7c5] text-[#54483c] hover:bg-[#eae1d3] hover:text-[#2b221b] cursor-pointer';
 
+/** Two-tone circle (land over water) standing in for a world type's icon */
+function WorldSwatch({ world }: { world: WorldTypeDefinition }) {
+  return (
+    <span
+      aria-hidden="true"
+      className="w-5 h-5 rounded-full border border-black/15 shrink-0"
+      style={{
+        background: `linear-gradient(to bottom, ${world.swatch.land} 0 55%, ${world.swatch.water} 55% 100%)`,
+      }}
+    />
+  );
+}
+
 interface ToolDockProps {
   orientation: 'vertical' | 'horizontal';
   activeTool: ToolId | null;
   onSelectTool: (tool: ToolId) => void;
+  worldType: WorldTypeId;
+  onSelectWorldType: (world: WorldTypeId) => void;
   openCategory: DockCategory | null;
   onOpenCategory: (category: DockCategory | null) => void;
 }
@@ -163,6 +179,8 @@ export function ToolDock({
   orientation,
   activeTool,
   onSelectTool,
+  worldType,
+  onSelectWorldType,
   openCategory,
   onOpenCategory,
 }: ToolDockProps) {
@@ -224,11 +242,34 @@ export function ToolDock({
           >
             <ChevronLeft className="w-4 h-4 shrink-0" />
           </button>
-          {toolsInCategory(openCategory).map(renderToolButton)}
+          {openCategory === 'world'
+            ? WORLD_TYPES.map((world) => {
+                const isCurrent = world.id === worldType;
+                return (
+                  <button
+                    key={world.id}
+                    type="button"
+                    onClick={() => onSelectWorldType(world.id)}
+                    title={world.label}
+                    aria-label={world.label}
+                    aria-pressed={isCurrent}
+                    className={`${BUTTON_BASE} ${
+                      isCurrent
+                        ? 'bg-[#e8dcc6] border-[#b9a17d] shadow-xs cursor-pointer'
+                        : BUTTON_IDLE
+                    }`}
+                  >
+                    <WorldSwatch world={world} />
+                  </button>
+                );
+              })
+            : toolsInCategory(openCategory).map(renderToolButton)}
         </>
       ) : (
         TOOL_CATEGORIES.map((category) => {
-          const isEmpty = toolsInCategory(category.id).length === 0;
+          // World holds world types rather than placeable tools
+          const isEmpty =
+            category.id !== 'world' && toolsInCategory(category.id).length === 0;
           const holdsActiveTool = activeCategory === category.id;
           const label = isEmpty ? `${category.label}: coming soon` : category.label;
           return (
