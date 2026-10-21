@@ -23,7 +23,6 @@ import {
   Sailboat,
   SlidersHorizontal,
   Sparkles,
-  Sprout,
   Sun,
   Sunset,
   TowerControl,
@@ -43,6 +42,7 @@ import {
   ToolCategory,
   ToolId,
   WorldState,
+  FARM_PROTOTYPE_TOOLS,
 } from './types/world';
 
 const TOOL_GROUPS: { category: Exclude<ToolCategory, 'all'>; title: string }[] = [
@@ -128,11 +128,11 @@ export default function App() {
   const nameInputRef = useRef<HTMLInputElement | null>(null);
 
   const [worldState, setWorldState] = useState<WorldState>({
-    planetName: 'Little Meadow',
+    planetName: 'Sect World',
     population: 12,
     happiness: 96,
     dayCount: 1,
-    activeTool: 'tree',
+    activeTool: null,
     activeView: 'orb',
     timeMode: 'auto',
     timeOfDay: 0.24,
@@ -198,8 +198,9 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [filtersOpen]);
 
+  // Tapping the armed tool again disarms it
   const handleSelectTool = (tool: ToolId) => {
-    controllerRef.current?.setTool(tool);
+    controllerRef.current?.setTool(worldState.activeTool === tool ? null : tool);
   };
 
   const handleSelectView = (view: CameraViewId) => {
@@ -219,10 +220,6 @@ export default function App() {
     controllerRef.current?.setTimeMode(mode);
   };
 
-  const handleGrow = () => {
-    controllerRef.current?.triggerGrowVillage();
-  };
-
   const handleToggleTour = () => {
     setFiltersOpen(false);
     if (worldState.tourActive) {
@@ -233,7 +230,9 @@ export default function App() {
   };
 
   const orderedTools = TOOL_GROUPS.flatMap((group) =>
-    TOOL_DEFINITIONS.filter((t) => t.category === group.category),
+    TOOL_DEFINITIONS.filter(
+      (t) => t.category === group.category && !FARM_PROTOTYPE_TOOLS.includes(t.id),
+    ),
   );
 
   return (
@@ -355,7 +354,7 @@ export default function App() {
                         if (!worldState.planetName.trim()) {
                           setWorldState((prev) => ({
                             ...prev,
-                            planetName: 'Little Meadow',
+                            planetName: 'Sect World',
                           }));
                         }
                         setIsEditingName(false);
@@ -420,18 +419,8 @@ export default function App() {
                 </div>
               </section>
 
-              {/* 2. Primary Actions: Grow & 30s Tour */}
-              <section className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={handleGrow}
-                  className="flex items-center justify-center gap-1.5 px-3 py-2.5 text-xs font-semibold text-[#23451e] bg-[#d4ebc8] hover:bg-[#c5e3b5] border border-[#a3cf8e] rounded-xl transition-colors cursor-pointer"
-                  title="Advance village development with new homes, paths, and trees"
-                >
-                  <Sprout className="w-3.5 h-3.5" />
-                  <span>Grow</span>
-                </button>
-
+              {/* 2. Primary Actions: 30s Tour */}
+              <section className="grid grid-cols-1 gap-2">
                 <button
                   type="button"
                   onClick={handleToggleTour}
@@ -475,7 +464,7 @@ export default function App() {
                       { id: 'orb', label: 'Globe' },
                       { id: 'surface', label: 'Surface' },
                       { id: 'orbit', label: 'Orbit' },
-                      { id: 'village', label: 'Village' },
+                      { id: 'village', label: 'Pagoda' },
                     ] as { id: CameraViewId; label: string }[]
                   ).map((v) => {
                     const active =
@@ -657,17 +646,8 @@ export default function App() {
                 </div>
               </section>
 
-              {/* Primary Actions: Grow & 30s Tour */}
-              <section className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={handleGrow}
-                  className="flex items-center justify-center gap-1.5 px-3 py-2.5 text-xs font-semibold text-[#23451e] bg-[#d4ebc8] hover:bg-[#c5e3b5] border border-[#a3cf8e] rounded-xl transition-colors cursor-pointer"
-                >
-                  <Sprout className="w-3.5 h-3.5" />
-                  <span>Grow</span>
-                </button>
-
+              {/* Primary Actions: 30s Tour */}
+              <section className="grid grid-cols-1 gap-2">
                 <button
                   type="button"
                   onClick={handleToggleTour}
@@ -709,7 +689,7 @@ export default function App() {
                       { id: 'orb', label: 'Globe' },
                       { id: 'surface', label: 'Surface' },
                       { id: 'orbit', label: 'Orbit' },
-                      { id: 'village', label: 'Village' },
+                      { id: 'village', label: 'Pagoda' },
                     ] as { id: CameraViewId; label: string }[]
                   ).map((v) => {
                     const active =

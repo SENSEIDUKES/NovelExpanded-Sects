@@ -197,12 +197,12 @@ export function createPlanetTerrain(): PlanetTerrainHandles {
   );
   nonIndexedGeo.setAttribute('color', colorAttr);
 
-  const colDeepSand = new THREE.Color('#baa87c');
-  const colBeachSand = new THREE.Color('#eed7a1');
-  const colWarmSand = new THREE.Color('#e5ca8f');
-  const colGrassLight = new THREE.Color('#8ad16b');
-  const colGrassMid = new THREE.Color('#63b257');
-  const colGrassDeep = new THREE.Color('#468e48');
+  const colDeepSand = new THREE.Color('#a99d80');
+  const colBeachSand = new THREE.Color('#ddd3b6');
+  const colWarmSand = new THREE.Color('#cfc29f');
+  const colGrassLight = new THREE.Color('#93b86f');
+  const colGrassMid = new THREE.Color('#6a9a5a');
+  const colGrassDeep = new THREE.Color('#47744b');
   const colRock = new THREE.Color('#878d99');
   const colRockDark = new THREE.Color('#6f7582');
   const colSnow = new THREE.Color('#f7fbff');
@@ -343,9 +343,9 @@ export function createPlanetTerrain(): PlanetTerrainHandles {
     return bestRadius;
   };
 
-  const colShallowShore = new THREE.Color('#7ef2e6');
-  const colMidTurquoise = new THREE.Color('#2bc4d4');
-  const colDeepSea = new THREE.Color('#126c87');
+  const colShallowShore = new THREE.Color('#8fdcc8');
+  const colMidTurquoise = new THREE.Color('#3c9f9c');
+  const colDeepSea = new THREE.Color('#1b5868');
   const wColor = new THREE.Color();
 
   const updateWaterColors = () => {

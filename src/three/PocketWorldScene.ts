@@ -9,6 +9,7 @@ import {
   createFlowerClusterMesh,
   createHotAirBalloonMesh,
   createLanternPostMesh,
+  createPagodaMesh,
   createOakTreeMesh,
   createPalmTreeMesh,
   createPastelHouseMesh,
@@ -97,9 +98,11 @@ export class PocketWorldController {
   private shootingStars: ShootingStarEntity[] = [];
   private sparkles: SparkleBurst[] = [];
 
-  private wellDirection = new THREE.Vector3(-0.16, 0.22, 0.96).normalize();
+  private homeBaseDirection = new THREE.Vector3(-0.16, 0.22, 0.96).normalize();
   private pastureCenter = new THREE.Vector3(-0.20, -0.15, 0.97).normalize();
   private pastureRadius = 0.098;
+  // The farm prototype's fenced sheep corral; off for Sect worlds, which start without one
+  private hasPasture = false;
   private houseCounter = 0;
   private villagerCounter = 0;
   private boatCounter = 0;
@@ -110,7 +113,8 @@ export class PocketWorldController {
   private cursorRing!: THREE.Mesh;
 
   // Interaction & Inertia state
-  private activeTool: ToolId = 'tree';
+  // null = nothing armed; each item tool places one item and then disarms
+  private activeTool: ToolId | null = null;
   private activeView: CameraViewId = 'orb';
   private timeMode: TimeMode = 'auto';
   private timeOfDay = 0.24; // Starts in warm sunlit afternoon
@@ -473,91 +477,51 @@ export class PocketWorldController {
   }
 
   private populateInitialWorld() {
-    // 1. Stone Well at the center of "Little Meadow"
-    this.placeStaticObject('well', this.wellDirection, 0, false, false);
+    // Every Sect world starts with its home-base pagoda, facing the default camera
+    const pagoda = this.placeStaticObject('pagoda', this.homeBaseDirection, 0, false, false);
 
-    // 2. Ten Pastel Houses distributed across the globe in four distinct neighborhoods
-    const westSquare = new THREE.Vector3(-0.80, 0.24, 0.54).normalize();
-    const eastBackSquare = new THREE.Vector3(0.54, -0.24, -0.80).normalize();
-    const southSquare = new THREE.Vector3(-0.04, -0.66, -0.75).normalize();
-
-    const houseConfigs: { dir: THREE.Vector3; hub: THREE.Vector3 }[] = [
-      // Front Meadow Village (+Z) — spaced generously around the stone well
-      { dir: new THREE.Vector3(-0.36, 0.30, 0.88).normalize(), hub: this.wellDirection },
-      { dir: new THREE.Vector3(-0.01, 0.38, 0.92).normalize(), hub: this.wellDirection },
-      { dir: new THREE.Vector3(-0.38, 0.08, 0.92).normalize(), hub: this.wellDirection },
-      { dir: new THREE.Vector3(0.08, 0.12, 0.99).normalize(), hub: this.wellDirection },
-      // Western Sunset Ridge (-X)
-      { dir: new THREE.Vector3(-0.74, 0.36, 0.56).normalize(), hub: westSquare },
-      { dir: new THREE.Vector3(-0.88, 0.16, 0.44).normalize(), hub: westSquare },
-      // Back-Eastern Highland Hamlet (+X / -Z)
-      { dir: new THREE.Vector3(0.64, -0.14, -0.75).normalize(), hub: eastBackSquare },
-      { dir: new THREE.Vector3(0.38, -0.36, -0.85).normalize(), hub: eastBackSquare },
-      { dir: new THREE.Vector3(0.82, 0.14, -0.55).normalize(), hub: eastBackSquare },
-      // Southern Valley Overlook (-Y / -Z)
-      { dir: new THREE.Vector3(-0.14, -0.64, -0.76).normalize(), hub: southSquare },
+    // Stone path leading out from the pagoda's front stairs
+    const frontDir = this.getBuildingEntranceDir(pagoda, 0);
+    const approachDirs = [
+      frontDir,
+      frontDir.clone().lerp(this.homeBaseDirection, -0.45).normalize(),
     ];
-
-    const initialHouses: PlacedObjectEntity[] = [];
-    houseConfigs.forEach(({ dir, hub }, idx) => {
-      const houseYaw = this.computeYawFacingTarget(dir, hub);
-      const hObj = this.placeStaticObject('house', dir, houseYaw, true, false);
-      initialHouses.push(hObj);
-
-      // Add stepping stone path outside each cottage's front doorstep toward its neighborhood square
-      const doorDir = this.getBuildingEntranceDir(hObj, 0);
-      const midDir = doorDir.clone().lerp(hub, 0.42).normalize();
-      const pathYaw = this.computeYawFacingTarget(midDir, hub);
-      this.placeStaticObject('path', midDir, pathYaw + idx * 0.1, true, false);
+    approachDirs.forEach((d, i) => {
+      this.placeStaticObject('path', d, i * 0.6, false, false);
     });
 
-    // 3. White Windmill on the breezy western knoll overlooking the meadow
-    const windmillDir = new THREE.Vector3(-0.52, 0.36, 0.77).normalize();
-    const windmillYaw = this.computeYawFacingTarget(windmillDir, this.wellDirection);
-    this.placeStaticObject('windmill', windmillDir, windmillYaw, true, false);
-
-    // 4. Striped Cliff-Top Lighthouse on the eastern coastal promontory overlooking Sea 1
-    const lighthouseDir = new THREE.Vector3(0.62, 0.34, 0.71).normalize();
-    this.placeStaticObject('lighthouse', lighthouseDir, -0.4, true, false);
-
-    // 5. Continuous 10-Segment Tangential Wooden Fence Corral enclosing the Sheep Pasture
-    const pRight = new THREE.Vector3()
-      .crossVectors(UP_VEC, this.pastureCenter)
+    // A pair of stone lanterns flanking the approach
+    const right = new THREE.Vector3()
+      .crossVectors(UP_VEC, this.homeBaseDirection)
       .normalize();
-    const pUp = new THREE.Vector3()
-      .crossVectors(this.pastureCenter, pRight)
-      .normalize();
-    const fenceSegments = 10;
-    for (let i = 0; i < fenceSegments; i++) {
-      const angle = (i / fenceSegments) * Math.PI * 2;
-      const cosA = Math.cos(angle);
-      const sinA = Math.sin(angle);
-      const fDir = this.pastureCenter
+    for (const side of [-1, 1]) {
+      const lanternDir = frontDir
         .clone()
-        .addScaledVector(pRight, cosA * this.pastureRadius)
-        .addScaledVector(pUp, sinA * this.pastureRadius)
+        .addScaledVector(right, side * 0.034)
         .normalize();
-      const outwardDir = this.pastureCenter
-        .clone()
-        .addScaledVector(pRight, cosA * (this.pastureRadius + 0.08))
-        .addScaledVector(pUp, sinA * (this.pastureRadius + 0.08))
-        .normalize();
-      // Align local +Z outward so the fence's local X rails run strictly tangent to the pasture perimeter
-      const fenceYaw = this.computeYawFacingTarget(fDir, outwardDir);
-      this.placeStaticObject('fence', fDir, fenceYaw, true, false);
+      this.placeStaticObject('lantern', lanternDir, 0, true, false);
     }
 
-    // 6. Rounded Oaks across the grassy hills around the globe
+    // Pines framing the pagoda, a few more on the ridges
+    const pineDirs = [
+      new THREE.Vector3(-0.30, 0.32, 0.90).normalize(),
+      new THREE.Vector3(0.0, 0.36, 0.93).normalize(),
+      new THREE.Vector3(-0.36, 0.14, 0.92).normalize(),
+      new THREE.Vector3(0.05, 0.78, 0.62).normalize(),
+      new THREE.Vector3(-0.18, 0.82, 0.54).normalize(),
+      new THREE.Vector3(0.28, 0.79, 0.54).normalize(),
+      new THREE.Vector3(0.35, 0.84, -0.41).normalize(),
+      new THREE.Vector3(-0.42, 0.74, 0.52).normalize(),
+    ];
+    pineDirs.forEach((d, i) => {
+      this.placeStaticObject('pine', d, i * 2.1, true, false);
+    });
+
+    // Rounded trees scattered across the rest of the world
     const oakDirs = [
-      new THREE.Vector3(-0.48, 0.48, 0.73).normalize(),
-      new THREE.Vector3(-0.22, 0.52, 0.82).normalize(),
-      new THREE.Vector3(0.24, 0.46, 0.85).normalize(),
       new THREE.Vector3(-0.66, 0.18, 0.73).normalize(),
       new THREE.Vector3(-0.58, -0.28, 0.76).normalize(),
-      new THREE.Vector3(0.15, -0.56, 0.81).normalize(),
       new THREE.Vector3(0.45, 0.58, -0.68).normalize(),
-      new THREE.Vector3(-0.32, 0.42, -0.85).normalize(),
-      new THREE.Vector3(0.76, 0.32, -0.56).normalize(),
       new THREE.Vector3(-0.86, -0.18, 0.48).normalize(),
       new THREE.Vector3(0.22, -0.62, -0.75).normalize(),
     ];
@@ -565,141 +529,23 @@ export class PocketWorldController {
       this.placeStaticObject('oak', d, i * 1.7, true, false);
     });
 
-    // 7. Narrow Pines near the northern snowy mountain & high ridges
-    const pineDirs = [
-      new THREE.Vector3(0.05, 0.78, 0.62).normalize(),
-      new THREE.Vector3(-0.18, 0.82, 0.54).normalize(),
-      new THREE.Vector3(0.28, 0.79, 0.54).normalize(),
-      new THREE.Vector3(0.35, 0.84, -0.41).normalize(),
-      new THREE.Vector3(-0.26, 0.86, -0.44).normalize(),
-      new THREE.Vector3(0.02, 0.88, -0.47).normalize(),
-      new THREE.Vector3(-0.42, 0.74, 0.52).normalize(),
-    ];
-    pineDirs.forEach((d, i) => {
-      this.placeStaticObject('pine', d, i * 2.1, true, false);
-    });
-
-    // 8. Palms beside the coast (along sandy beaches of both turquoise seas)
-    const palmDirs = [
-      new THREE.Vector3(0.32, -0.08, 0.94).normalize(),
-      new THREE.Vector3(0.38, -0.26, 0.88).normalize(),
-      new THREE.Vector3(0.52, 0.14, 0.84).normalize(),
-      new THREE.Vector3(0.84, -0.05, 0.54).normalize(),
-      new THREE.Vector3(-0.38, -0.18, -0.91).normalize(),
-      new THREE.Vector3(-0.88, 0.12, -0.46).normalize(),
-    ];
-    palmDirs.forEach((d, i) => {
-      this.placeStaticObject('palm', d, i * 1.4, true, false);
-    });
-
-    // 9. Meadow Flowers across the neighborhoods
     const flowerDirs = [
-      new THREE.Vector3(-0.26, 0.34, 0.90).normalize(),
-      new THREE.Vector3(0.06, 0.28, 0.96).normalize(),
-      new THREE.Vector3(-0.82, 0.28, 0.50).normalize(),
-      new THREE.Vector3(0.48, -0.18, -0.86).normalize(),
-      new THREE.Vector3(-0.04, -0.58, -0.81).normalize(),
+      new THREE.Vector3(-0.30, 0.20, 0.93).normalize(),
+      new THREE.Vector3(0.02, 0.18, 0.98).normalize(),
     ];
     flowerDirs.forEach((d, i) => {
       this.placeStaticObject('flower', d, i * 0.9, true, false);
     });
 
-    // 10. Cozy Village & Global Landmarks (Campfires, Beehives, Lanterns away from the well, Watchtower, Dock)
-    this.placeStaticObject(
-      'campfire',
-      new THREE.Vector3(-0.18, 0.05, 0.98).normalize(),
-      0.4,
-      true,
-      false,
-    );
-    this.placeStaticObject(
-      'campfire',
-      eastBackSquare,
-      1.1,
-      true,
-      false,
-    );
-    this.placeStaticObject(
-      'beehive',
-      new THREE.Vector3(-0.15, 0.44, 0.88).normalize(),
-      0.8,
-      true,
-      false,
-    );
-    this.placeStaticObject(
-      'beehive',
-      new THREE.Vector3(-0.82, 0.04, 0.57).normalize(),
-      -0.6,
-      true,
-      false,
-    );
-    // Streetlamps positioned along outer avenues across the globe, far clear of the stone well plaza
-    const lanternDirs = [
-      new THREE.Vector3(-0.28, 0.44, 0.85).normalize(),
-      new THREE.Vector3(0.18, 0.26, 0.95).normalize(),
-      new THREE.Vector3(-0.78, 0.22, 0.58).normalize(),
-      new THREE.Vector3(0.48, -0.28, -0.83).normalize(),
-    ];
-    lanternDirs.forEach((lDir, idx) => {
-      this.placeStaticObject('lantern', lDir, idx * 0.9 - 0.4, true, false);
-    });
-    const watchtowerDir = new THREE.Vector3(-0.34, 0.65, 0.68).normalize();
-    const watchtowerYaw = this.computeYawFacingTarget(
-      watchtowerDir,
-      this.wellDirection,
-    );
-    this.placeStaticObject(
-      'watchtower',
-      watchtowerDir,
-      watchtowerYaw,
-      true,
-      false,
-    );
-    const dockDir = new THREE.Vector3(0.285, -0.04, 0.958).normalize();
-    this.placeStaticObject(
-      'dock',
-      dockDir,
-      1.50,
-      true,
-      false,
-    );
-    const dockShorePathDir = new THREE.Vector3(0.19, -0.02, 0.981).normalize();
-    const dockShorePathYaw = this.computeYawFacingTarget(dockShorePathDir, dockDir);
-    this.placeStaticObject('path', dockShorePathDir, dockShorePathYaw, true, false);
-
-    // 11. Water Life: Sailboats & Paddling Swans/Ducks on the turquoise seas
-    this.spawnSailboat(new THREE.Vector3(0.62, -0.14, 0.77).normalize(), false);
-    this.spawnSailboat(new THREE.Vector3(-0.66, -0.14, -0.73).normalize(), false);
-    this.spawnDuckFlock(new THREE.Vector3(0.52, -0.22, 0.82).normalize(), false);
-
-    // 12. Hot Air Balloon drifting gently in the upper atmosphere
-    this.spawnBalloon(new THREE.Vector3(0.35, 0.52, 0.78).normalize(), false);
-
-    // 13. Twelve Villagers distributed across the 10 houses around the entire globe
-    for (let i = 0; i < 12; i++) {
-      const homeObj = initialHouses[i % initialHouses.length];
-      const lateral = ((i % 3) - 1) * 0.016;
-      const startDir = this.getBuildingEntranceDir(homeObj, lateral);
-      this.spawnVillager(startDir, false);
+    // A handful of residents coming and going from the pagoda
+    for (let i = 0; i < 4; i++) {
+      const lateral = (i - 1.5) * 0.014;
+      this.spawnVillager(this.getBuildingEntranceDir(pagoda, lateral), false);
     }
 
-    // 14. Eight White Sheep grazing safely inside the fenced sheep pasture corral
-    for (let i = 0; i < 8; i++) {
-      const angle = (i / 8) * Math.PI * 2 + (i % 2) * 0.2;
-      const radialDist = i < 3 ? 0.028 : 0.056;
-      const sDir = this.pastureCenter
-        .clone()
-        .addScaledVector(pRight, Math.cos(angle) * radialDist)
-        .addScaledVector(pUp, Math.sin(angle) * radialDist)
-        .normalize();
-      this.spawnSheep(sDir, false, true);
-    }
-
-    // 15. Three Puffy Clouds following curved paths around the world
     const cloudDirs = [
       new THREE.Vector3(-0.28, 0.38, 0.88).normalize(),
       new THREE.Vector3(0.68, 0.25, -0.68).normalize(),
-      new THREE.Vector3(-0.55, -0.48, -0.68).normalize(),
     ];
     cloudDirs.forEach((d, idx) => {
       this.spawnCloud(d, false, idx === 0 ? 3.5 : 8.0 + idx * 4.0, false);
@@ -708,6 +554,8 @@ export class PocketWorldController {
 
   private getObjectCollisionRadius(type: PlacedObjectType): number {
     switch (type) {
+      case 'pagoda':
+        return 0.078;
       case 'house':
         return 0.054;
       case 'windmill':
@@ -914,6 +762,7 @@ export class PocketWorldController {
 
     if (
       !allowInsidePasture &&
+      this.hasPasture &&
       dir.distanceTo(this.pastureCenter) < this.pastureRadius + extraMargin
     ) {
       return false;
@@ -989,7 +838,11 @@ export class PocketWorldController {
     let watchtowerFlag: THREE.Mesh | undefined;
     let butterflySwarm: THREE.Group | undefined;
 
-    if (type === 'house') {
+    if (type === 'pagoda') {
+      const res = createPagodaMesh();
+      meshGroup = res.group;
+      windowMaterials = res.windowMaterials;
+    } else if (type === 'house') {
       const res = createPastelHouseMesh(this.houseCounter++);
       meshGroup = res.group;
       windowMaterials = res.windowMaterials;
@@ -1048,7 +901,7 @@ export class PocketWorldController {
     }
 
     const stickToSea = type === 'dock' || type === 'bridge';
-    const useRadialUp = stickToSea || type === 'lighthouse';
+    const useRadialUp = stickToSea || type === 'lighthouse' || type === 'pagoda';
     this.orientObjectOnSurface(meshGroup, normDir, yaw, 0, stickToSea, useRadialUp);
     this.objectsGroup.add(meshGroup);
 
@@ -1329,8 +1182,8 @@ export class PocketWorldController {
     // Count how many villagers are already near or heading toward the stone well
     const wellVisitorCount = this.villagers.filter(
       (v) =>
-        v.dir.distanceTo(this.wellDirection) < 0.14 ||
-        v.targetDir.distanceTo(this.wellDirection) < 0.14,
+        v.dir.distanceTo(this.homeBaseDirection) < 0.14 ||
+        v.targetDir.distanceTo(this.homeBaseDirection) < 0.14,
     ).length;
 
     if (headingToSocialHub) {
@@ -1348,11 +1201,11 @@ export class PocketWorldController {
       }
 
       // 2. Only allow at most 2 villagers at a time to head to the Stone Well, and only if reasonably nearby
-      const nearWellHemisphere = !fromDir || fromDir.distanceTo(this.wellDirection) < 0.85;
+      const nearWellHemisphere = !fromDir || fromDir.distanceTo(this.homeBaseDirection) < 0.85;
       if (wellVisitorCount < 2 && nearWellHemisphere && Math.random() < 0.45) {
-        const wellBaseR = this.getObjectCollisionRadius('well');
+        const wellBaseR = this.getObjectCollisionRadius('pagoda');
         const wellSpot = this.sampleClearRingAroundHub(
-          this.wellDirection,
+          this.homeBaseDirection,
           wellBaseR + 0.028,
           wellBaseR + 0.048,
         );
@@ -1394,9 +1247,16 @@ export class PocketWorldController {
       }
     }
 
+    // Sect worlds start sparse, so residents often just stroll the grounds around the pagoda
+    if (Math.random() < 0.5) {
+      const wanderSpot = this.sampleWanderSpotNearHome();
+      if (wanderSpot) return wanderSpot;
+    }
+
     // Visit a cottage, watchtower, windmill, or dock around the globe
     const destinations = this.placedObjects.filter(
       (o) =>
+        o.type === 'pagoda' ||
         o.type === 'house' ||
         o.type === 'watchtower' ||
         o.type === 'windmill' ||
@@ -1426,8 +1286,17 @@ export class PocketWorldController {
       return this.getBuildingEntranceDir(chosen, lateral);
     }
 
+    const wanderSpot = this.sampleWanderSpotNearHome();
+    if (wanderSpot) return wanderSpot;
+    return this.homeBaseDirection
+      .clone()
+      .add(new THREE.Vector3(0, 0.068, 0))
+      .normalize();
+  }
+
+  private sampleWanderSpotNearHome(): THREE.Vector3 | null {
     for (let attempt = 0; attempt < 16; attempt++) {
-      const candidate = this.wellDirection
+      const candidate = this.homeBaseDirection
         .clone()
         .add(
           new THREE.Vector3(
@@ -1441,10 +1310,7 @@ export class PocketWorldController {
         return candidate;
       }
     }
-    return this.wellDirection
-      .clone()
-      .add(new THREE.Vector3(0, 0.068, 0))
-      .normalize();
+    return null;
   }
 
   private spawnSheep(
@@ -1461,7 +1327,8 @@ export class PocketWorldController {
     const isInsideCorral =
       forceInPasture !== undefined
         ? forceInPasture
-        : normDir.distanceTo(this.pastureCenter) < this.pastureRadius - 0.01;
+        : this.hasPasture &&
+          normDir.distanceTo(this.pastureCenter) < this.pastureRadius - 0.01;
 
     const entity: SheepEntity = {
       id: `sheep_${Date.now()}_${Math.random()}`,
@@ -1605,14 +1472,45 @@ export class PocketWorldController {
   private realignAllObjectsToTerrain() {
     for (const obj of this.placedObjects) {
       const stickToSea = obj.type === 'dock' || obj.type === 'bridge';
-      const useRadialUp = stickToSea || obj.type === 'lighthouse';
+      const useRadialUp =
+        stickToSea || obj.type === 'lighthouse' || obj.type === 'pagoda';
       this.orientObjectOnSurface(obj.mesh, obj.dir, obj.yaw, 0, stickToSea, useRadialUp);
     }
   }
 
   public handleSurfaceAction(localDir: THREE.Vector3) {
-    const surface = this.terrain.getSurfacePointAndNormal(localDir);
     const tool = this.activeTool;
+    if (!tool) return;
+
+    const isBrush =
+      tool === 'raise' ||
+      tool === 'lower' ||
+      tool === 'mountain' ||
+      tool === 'lake' ||
+      tool === 'remove';
+    const isSky = tool === 'cloud' || tool === 'snowcloud' || tool === 'shootingstar';
+
+    // Nothing gets built on, or sculpted under, the home-base pagoda
+    if (tool !== 'remove' && !isSky) {
+      const pagoda = this.placedObjects.find((o) => o.type === 'pagoda');
+      const keepClear =
+        this.getObjectCollisionRadius('pagoda') + (isBrush ? 0.06 : 0.012);
+      if (pagoda && localDir.distanceTo(pagoda.dir) < keepClear) {
+        this.emitSparklesAtDir(localDir, '#ffb8b8');
+        return;
+      }
+    }
+
+    this.applyToolAt(tool, localDir);
+
+    // Items are placed one at a time; brushes stay armed
+    if (!isBrush) {
+      this.setTool(null);
+    }
+  }
+
+  private applyToolAt(tool: ToolId, localDir: THREE.Vector3) {
+    const surface = this.terrain.getSurfacePointAndNormal(localDir);
 
     if (tool === 'raise' || tool === 'lower' || tool === 'mountain' || tool === 'lake') {
       this.terrain.sculptAtDirection(localDir, tool);
@@ -1770,25 +1668,25 @@ export class PocketWorldController {
       }
       this.placeStaticObject(treeType, localDir, Math.random() * Math.PI * 2, true, true);
     } else if (tool === 'house') {
-      const houseYaw = this.computeYawFacingTarget(localDir, this.wellDirection);
+      const houseYaw = this.computeYawFacingTarget(localDir, this.homeBaseDirection);
       const newHouse = this.placeStaticObject('house', localDir, houseYaw, true, true);
       // Connect with a stepping stone path from the front door toward the well if nearby
       const doorDir = this.getBuildingEntranceDir(newHouse, 0);
-      if (localDir.distanceTo(this.wellDirection) < 0.55) {
-        const pathDir = doorDir.clone().lerp(this.wellDirection, 0.5).normalize();
-        const pathYaw = this.computeYawFacingTarget(pathDir, this.wellDirection);
+      if (localDir.distanceTo(this.homeBaseDirection) < 0.55) {
+        const pathDir = doorDir.clone().lerp(this.homeBaseDirection, 0.5).normalize();
+        const pathYaw = this.computeYawFacingTarget(pathDir, this.homeBaseDirection);
         this.placeStaticObject('path', pathDir, pathYaw, true, false);
       }
       // Every new house welcomes 2 new villagers at its front doorstep!
       this.spawnVillager(this.getBuildingEntranceDir(newHouse, -0.014), false);
       this.spawnVillager(this.getBuildingEntranceDir(newHouse, 0.014), false);
     } else if (tool === 'windmill') {
-      const yaw = this.computeYawFacingTarget(localDir, this.wellDirection);
+      const yaw = this.computeYawFacingTarget(localDir, this.homeBaseDirection);
       this.placeStaticObject('windmill', localDir, yaw, true, true);
     } else if (tool === 'lighthouse') {
       this.placeStaticObject('lighthouse', localDir, Math.random() * Math.PI * 2, true, true);
     } else if (tool === 'watchtower') {
-      const yaw = this.computeYawFacingTarget(localDir, this.wellDirection);
+      const yaw = this.computeYawFacingTarget(localDir, this.homeBaseDirection);
       this.placeStaticObject('watchtower', localDir, yaw, true, true);
     } else if (tool === 'campfire') {
       this.placeStaticObject('campfire', localDir, Math.random() * Math.PI * 2, true, true);
@@ -1826,70 +1724,11 @@ export class PocketWorldController {
     this.syncWorldStats();
   }
 
-  /**
-   * "Grow" button advances village development through new homes, paths, and trees,
-   * and visibly advances existing trees' growth!
-   */
-  public triggerGrowVillage() {
-    // 1. Mature existing trees with a joyful bounce
-    for (const obj of this.placedObjects) {
-      if (obj.type === 'oak' || obj.type === 'pine' || obj.type === 'palm') {
-        obj.targetGrowth = Math.min(1.42, obj.targetGrowth + 0.18);
-        obj.bounceTime = 0;
-        obj.bounceActive = true;
-      }
-    }
-
-    // 2. Find an open meadow spot near the village well for a new pastel cottage + path
-    for (let attempt = 0; attempt < 28; attempt++) {
-      const angle = Math.random() * Math.PI * 2;
-      const dist = 0.19 + Math.random() * 0.26;
-      const candidate = new THREE.Vector3(
-        this.wellDirection.x + Math.cos(angle) * dist,
-        this.wellDirection.y + Math.sin(angle) * dist,
-        this.wellDirection.z + (Math.random() - 0.5) * 0.2,
-      ).normalize();
-
-      if (this.isPositionClearOfObstacles(candidate, 0.068, false)) {
-        const houseYaw = this.computeYawFacingTarget(candidate, this.wellDirection);
-        const newHouse = this.placeStaticObject('house', candidate, houseYaw, true, true);
-        const doorDir = this.getBuildingEntranceDir(newHouse, 0);
-        const pathDir = doorDir.clone().lerp(this.wellDirection, 0.5).normalize();
-        const pathYaw = this.computeYawFacingTarget(pathDir, this.wellDirection);
-        this.placeStaticObject('path', pathDir, pathYaw, true, true);
-        this.spawnVillager(this.getBuildingEntranceDir(newHouse, -0.014), false);
-        this.spawnVillager(this.getBuildingEntranceDir(newHouse, 0.014), false);
-        break;
-      }
-    }
-
-    // 3. Plant 2 new trees and 1 flower cluster on open land
-    for (let t = 0; t < 3; t++) {
-      const randDir = new THREE.Vector3(
-        Math.random() - 0.5,
-        Math.random() - 0.5,
-        Math.random() + 0.2,
-      ).normalize();
-      const surf = this.terrain.getSurfacePointAndNormal(randDir);
-      if (!surf.isWater) {
-        const kind: PlacedObjectType =
-          t === 2
-            ? 'flower'
-            : surf.isBeach
-              ? 'palm'
-              : surf.isMountain
-                ? 'pine'
-                : 'oak';
-        this.placeStaticObject(kind, randDir, Math.random() * Math.PI * 2, true, true);
-      }
-    }
-
-    this.dayCount += 1;
-    this.syncWorldStats();
-  }
-
-  public setTool(tool: ToolId) {
+  public setTool(tool: ToolId | null) {
     this.activeTool = tool;
+    if (!tool) {
+      this.cursorRing.visible = false;
+    }
     this.onStateChange((prev) => ({ ...prev, activeTool: tool }));
   }
 
@@ -2244,7 +2083,7 @@ export class PocketWorldController {
 
       if (t >= 15.6 && !this.tourStepTriggered.has(1)) {
         this.tourStepTriggered.add(1);
-        const wmYaw = this.computeYawFacingTarget(windmillSpot, this.wellDirection);
+        const wmYaw = this.computeYawFacingTarget(windmillSpot, this.homeBaseDirection);
         const wm = this.placeStaticObject('windmill', windmillSpot, wmYaw, true, true);
         this.trackTourPlacedObject(wm);
         this.syncWorldStats();
@@ -2252,12 +2091,12 @@ export class PocketWorldController {
 
       if (t >= 16.4 && !this.tourStepTriggered.has(2)) {
         this.tourStepTriggered.add(2);
-        const hYaw = this.computeYawFacingTarget(cottageSpot, this.wellDirection);
+        const hYaw = this.computeYawFacingTarget(cottageSpot, this.homeBaseDirection);
         const newHouse = this.placeStaticObject('house', cottageSpot, hYaw, true, true);
         this.trackTourPlacedObject(newHouse);
         const doorDir = this.getBuildingEntranceDir(newHouse, 0);
-        const pathDir = doorDir.clone().lerp(this.wellDirection, 0.45).normalize();
-        const pathYaw = this.computeYawFacingTarget(pathDir, this.wellDirection);
+        const pathDir = doorDir.clone().lerp(this.homeBaseDirection, 0.45).normalize();
+        const pathYaw = this.computeYawFacingTarget(pathDir, this.homeBaseDirection);
         const newPath = this.placeStaticObject('path', pathDir, pathYaw, true, true);
         this.trackTourPlacedObject(newPath);
         this.spawnVillager(this.getBuildingEntranceDir(newHouse, -0.014), true);
@@ -2736,7 +2575,12 @@ export class PocketWorldController {
       }
 
       const hitDir = getTerrainHit(e);
-      if (hitDir && !this.isDraggingSpin && e.pointerType !== 'touch') {
+      if (
+        hitDir &&
+        this.activeTool &&
+        !this.isDraggingSpin &&
+        e.pointerType !== 'touch'
+      ) {
         this.cursorRing.visible = true;
         const surf = this.terrain.getSurfacePointAndNormal(hitDir);
         this.orientObjectOnSurface(
@@ -3297,7 +3141,7 @@ export class PocketWorldController {
       const dPasture = v.dir.distanceTo(this.pastureCenter);
       const pastureClear = this.pastureRadius + villagerRadius + 0.008;
       const pastureAvoid = pastureClear + 0.044;
-      if (dPasture < pastureAvoid && dPasture > 1e-6) {
+      if (this.hasPasture && dPasture < pastureAvoid && dPasture > 1e-6) {
         const toPasture = this.pastureCenter
           .clone()
           .sub(v.dir)
@@ -3844,7 +3688,7 @@ export class PocketWorldController {
       // 2. Keep villagers outside the fenced sheep pasture corral
       const dPasture = v.dir.distanceTo(this.pastureCenter);
       const minPastureDist = this.pastureRadius + villagerRadius + 0.006;
-      if (dPasture < minPastureDist) {
+      if (this.hasPasture && dPasture < minPastureDist) {
         const pushOut =
           dPasture > 1e-6
             ? v.dir.clone().sub(this.pastureCenter).normalize()

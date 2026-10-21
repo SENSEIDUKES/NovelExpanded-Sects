@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 
 export type PlacedObjectType =
+  | 'pagoda'
   | 'house'
   | 'windmill'
   | 'lighthouse'
@@ -143,6 +144,280 @@ export interface ShootingStarEntity {
   age: number;
   maxAge: number;
   sparkleTimer: number;
+}
+
+// ---------------------------------------------------------------------------
+// SECT HOME BASE: every Sect world starts with this pagoda
+// ---------------------------------------------------------------------------
+
+/** Four-sided eave with flared, upturned corners, built around the origin. */
+function createPagodaEave(
+  width: number,
+  depth: number,
+  rise: number,
+  tileMat: THREE.Material,
+  trimMat: THREE.Material,
+): THREE.Group {
+  const eave = new THREE.Group();
+
+  // Sloped hip roof: a square frustum rotated so its flat sides face the walls
+  const roofGeo = new THREE.CylinderGeometry(
+    width * 0.36,
+    width * 0.72,
+    rise,
+    4,
+    1,
+  );
+  roofGeo.rotateY(Math.PI / 4);
+  roofGeo.scale(1, 1, depth / width);
+  const roof = new THREE.Mesh(roofGeo, tileMat);
+  roof.position.y = rise / 2;
+  roof.castShadow = true;
+  roof.receiveShadow = true;
+  eave.add(roof);
+
+  // Thin gold fascia board along the eave's lower edge
+  const fascia = new THREE.Mesh(
+    new THREE.BoxGeometry(width * 1.0, rise * 0.14, depth * 1.0),
+    trimMat,
+  );
+  fascia.position.y = rise * 0.04;
+  eave.add(fascia);
+
+  // Upturned corner tips, the shape that reads as "pagoda" at a glance
+  for (const sx of [-1, 1]) {
+    for (const sz of [-1, 1]) {
+      const tip = new THREE.Mesh(
+        new THREE.ConeGeometry(rise * 0.32, rise * 1.5, 4),
+        tileMat,
+      );
+      tip.position.set(sx * width * 0.5, rise * 0.55, sz * depth * 0.5);
+      // Lean each tip outward along its corner diagonal while keeping it pointed up
+      tip.rotation.set(sz * 0.5, 0, -sx * 0.5);
+      tip.castShadow = true;
+      eave.add(tip);
+    }
+  }
+
+  return eave;
+}
+
+export function createPagodaMesh(): {
+  group: THREE.Group;
+  windowMaterials: THREE.MeshStandardMaterial[];
+} {
+  const group = new THREE.Group();
+  const windowMaterials: THREE.MeshStandardMaterial[] = [];
+
+  const stoneMat = new THREE.MeshStandardMaterial({
+    color: '#9a958c',
+    roughness: 0.9,
+    flatShading: true,
+  });
+  const darkStoneMat = new THREE.MeshStandardMaterial({
+    color: '#7b766e',
+    roughness: 0.92,
+    flatShading: true,
+  });
+  const wallMat = new THREE.MeshStandardMaterial({
+    color: '#efe3cc',
+    roughness: 0.8,
+    flatShading: true,
+  });
+  const pillarMat = new THREE.MeshStandardMaterial({
+    color: '#a5342a',
+    roughness: 0.6,
+    flatShading: true,
+  });
+  const tileMat = new THREE.MeshStandardMaterial({
+    color: '#2f4b4c',
+    roughness: 0.62,
+    flatShading: true,
+  });
+  const goldMat = new THREE.MeshStandardMaterial({
+    color: '#d6ad55',
+    metalness: 0.6,
+    roughness: 0.32,
+  });
+  const doorMat = new THREE.MeshStandardMaterial({
+    color: '#5e1d17',
+    roughness: 0.7,
+  });
+
+  // Two-step stone platform + front stairs
+  const platformLow = new THREE.Mesh(
+    new THREE.BoxGeometry(0.13, 0.014, 0.13),
+    darkStoneMat,
+  );
+  platformLow.position.y = 0.0;
+  platformLow.receiveShadow = true;
+  platformLow.castShadow = true;
+  group.add(platformLow);
+
+  const platformHigh = new THREE.Mesh(
+    new THREE.BoxGeometry(0.112, 0.012, 0.112),
+    stoneMat,
+  );
+  platformHigh.position.y = 0.012;
+  platformHigh.receiveShadow = true;
+  platformHigh.castShadow = true;
+  group.add(platformHigh);
+
+  for (let step = 0; step < 3; step++) {
+    const stair = new THREE.Mesh(
+      new THREE.BoxGeometry(0.03, 0.006, 0.01),
+      step % 2 === 0 ? stoneMat : darkStoneMat,
+    );
+    stair.position.set(0, 0.004 + step * 0.0055, 0.07 - step * 0.006);
+    group.add(stair);
+  }
+
+  // Three tiers, each narrower than the one below
+  const tiers = [
+    { width: 0.074, height: 0.034, eaveWidth: 0.112, eaveRise: 0.014 },
+    { width: 0.058, height: 0.026, eaveWidth: 0.09, eaveRise: 0.012 },
+    { width: 0.044, height: 0.022, eaveWidth: 0.07, eaveRise: 0.011 },
+  ];
+
+  let y = 0.018;
+  tiers.forEach((tier, tierIdx) => {
+    const body = new THREE.Mesh(
+      new THREE.BoxGeometry(tier.width, tier.height, tier.width),
+      wallMat,
+    );
+    body.position.y = y + tier.height / 2;
+    body.castShadow = true;
+    body.receiveShadow = true;
+    group.add(body);
+
+    // Vermilion corner pillars
+    for (const sx of [-1, 1]) {
+      for (const sz of [-1, 1]) {
+        const pillar = new THREE.Mesh(
+          new THREE.BoxGeometry(0.0055, tier.height, 0.0055),
+          pillarMat,
+        );
+        pillar.position.set(
+          sx * tier.width * 0.5,
+          y + tier.height / 2,
+          sz * tier.width * 0.5,
+        );
+        pillar.castShadow = true;
+        group.add(pillar);
+      }
+    }
+
+    // Vermilion lintel band under the eave
+    const lintel = new THREE.Mesh(
+      new THREE.BoxGeometry(tier.width + 0.004, 0.004, tier.width + 0.004),
+      pillarMat,
+    );
+    lintel.position.y = y + tier.height - 0.002;
+    group.add(lintel);
+
+    // Glowing lattice windows on all four faces (doorway replaces the front one on the ground tier)
+    const winMat = new THREE.MeshStandardMaterial({
+      color: '#ffe9b8',
+      emissive: new THREE.Color('#ffae38'),
+      emissiveIntensity: 0.25,
+      roughness: 0.4,
+    });
+    windowMaterials.push(winMat);
+    const winW = tier.width * 0.34;
+    const winH = tier.height * 0.42;
+    for (let face = 0; face < 4; face++) {
+      if (tierIdx === 0 && face === 0) continue;
+      const angle = (face * Math.PI) / 2;
+      const win = new THREE.Mesh(
+        new THREE.BoxGeometry(winW, winH, 0.002),
+        winMat,
+      );
+      const r = tier.width / 2 + 0.0008;
+      win.position.set(
+        Math.sin(angle) * r,
+        y + tier.height * 0.52,
+        Math.cos(angle) * r,
+      );
+      win.rotation.y = angle;
+      group.add(win);
+    }
+
+    if (tierIdx === 0) {
+      // Grand front doorway with a gold plaque above it
+      const door = new THREE.Mesh(
+        new THREE.BoxGeometry(0.022, 0.026, 0.003),
+        doorMat,
+      );
+      door.position.set(0, y + 0.013, tier.width / 2 + 0.001);
+      group.add(door);
+
+      const doorGlow = new THREE.Mesh(
+        new THREE.BoxGeometry(0.0016, 0.022, 0.0034),
+        winMat,
+      );
+      doorGlow.position.set(0, y + 0.013, tier.width / 2 + 0.0012);
+      group.add(doorGlow);
+
+      const plaque = new THREE.Mesh(
+        new THREE.BoxGeometry(0.016, 0.006, 0.002),
+        goldMat,
+      );
+      plaque.position.set(0, y + 0.03, tier.width / 2 + 0.002);
+      group.add(plaque);
+    }
+
+    y += tier.height;
+    const eave = createPagodaEave(
+      tier.eaveWidth,
+      tier.eaveWidth,
+      tier.eaveRise,
+      tileMat,
+      goldMat,
+    );
+    eave.position.y = y;
+    group.add(eave);
+    y += tier.eaveRise * 0.8;
+  });
+
+  // Gold spire finial: stacked rings topped by a jewel
+  const spireBase = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.004, 0.006, 0.006, 8),
+    goldMat,
+  );
+  spireBase.position.y = y + 0.003;
+  group.add(spireBase);
+
+  for (let ring = 0; ring < 4; ring++) {
+    const r = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.0042 - ring * 0.0006, 0.0042 - ring * 0.0006, 0.0018, 8),
+      goldMat,
+    );
+    r.position.y = y + 0.009 + ring * 0.0042;
+    group.add(r);
+  }
+
+  const spirePole = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.0009, 0.0012, 0.024, 6),
+    goldMat,
+  );
+  spirePole.position.y = y + 0.018;
+  spirePole.castShadow = true;
+  group.add(spirePole);
+
+  const jewel = new THREE.Mesh(
+    new THREE.OctahedronGeometry(0.0034, 0),
+    new THREE.MeshStandardMaterial({
+      color: '#f4dd8a',
+      emissive: new THREE.Color('#ffcf5c'),
+      emissiveIntensity: 0.6,
+      metalness: 0.4,
+      roughness: 0.25,
+    }),
+  );
+  jewel.position.y = y + 0.033;
+  group.add(jewel);
+
+  return { group, windowMaterials };
 }
 
 const HOUSE_PALETTES = [
@@ -3282,101 +3557,81 @@ export function createLanternPostMesh(): {
   group: THREE.Group;
   windowMaterials: THREE.MeshStandardMaterial[];
 } {
+  // Stone shrine lantern: plinth, pillar, glowing firebox, flared cap
   const group = new THREE.Group();
   const windowMaterials: THREE.MeshStandardMaterial[] = [];
 
-  // Cobblestone road medallion underneath the streetlamp
-  const cobbleGroup = createSteppingPathMesh();
-  group.add(cobbleGroup);
-
-  const ironMat = new THREE.MeshStandardMaterial({
-    color: '#2c3038',
-    roughness: 0.5,
-    metalness: 0.5,
+  const stoneMat = new THREE.MeshStandardMaterial({
+    color: '#9a958c',
+    roughness: 0.9,
+    flatShading: true,
   });
-  const brassMat = new THREE.MeshStandardMaterial({
-    color: '#d9b15b',
-    metalness: 0.65,
-    roughness: 0.3,
+  const darkStoneMat = new THREE.MeshStandardMaterial({
+    color: '#7b766e',
+    roughness: 0.92,
+    flatShading: true,
   });
 
-  // Fluted Victorian cast-iron base plinth + tapered post + ladder rest crossbar
-  const basePlinth = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.0034, 0.0048, 0.011, 8),
-    ironMat,
+  const base = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.0062, 0.0074, 0.005, 6),
+    darkStoneMat,
   );
-  basePlinth.position.y = 0.0055;
-  group.add(basePlinth);
+  base.position.y = 0.0025;
+  base.castShadow = true;
+  group.add(base);
 
-  const baseCollar = new THREE.Mesh(
-    new THREE.TorusGeometry(0.0034, 0.0008, 6, 10),
-    brassMat,
+  const pillar = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.0026, 0.0032, 0.02, 6),
+    stoneMat,
   );
-  baseCollar.rotation.x = Math.PI / 2;
-  baseCollar.position.y = 0.0115;
-  group.add(baseCollar);
+  pillar.position.y = 0.015;
+  pillar.castShadow = true;
+  group.add(pillar);
 
-  const post = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.0016, 0.0026, 0.042, 8),
-    ironMat,
+  const shelf = new THREE.Mesh(
+    new THREE.BoxGeometry(0.011, 0.0028, 0.011),
+    darkStoneMat,
   );
-  post.position.y = 0.031;
-  post.castShadow = true;
-  group.add(post);
-
-  const ladderBar = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.0007, 0.0007, 0.012, 6),
-    ironMat,
-  );
-  ladderBar.rotation.x = Math.PI / 2;
-  ladderBar.position.y = 0.039;
-  group.add(ladderBar);
-
-  // Curved scrollwork bracket arm
-  const arm = new THREE.Mesh(
-    new THREE.BoxGeometry(0.014, 0.0018, 0.0018),
-    ironMat,
-  );
-  arm.position.set(0.0065, 0.05, 0);
-  group.add(arm);
-
-  const scrollBrace = new THREE.Mesh(
-    new THREE.TorusGeometry(0.0042, 0.0007, 5, 10, Math.PI),
-    ironMat,
-  );
-  scrollBrace.position.set(0.0055, 0.049, 0);
-  group.add(scrollBrace);
+  shelf.position.y = 0.0264;
+  group.add(shelf);
 
   const lanternMat = new THREE.MeshStandardMaterial({
-    color: '#fff5c8',
-    emissive: new THREE.Color('#ffba3b'),
+    color: '#fff1c4',
+    emissive: new THREE.Color('#ffb03a'),
     emissiveIntensity: 0.35,
-    roughness: 0.15,
+    roughness: 0.3,
   });
   windowMaterials.push(lanternMat);
 
-  // 6-sided glass lantern cage + iron dome hood + top & bottom finials
-  const lantern = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.0044, 0.0032, 0.009, 6),
+  const firebox = new THREE.Mesh(
+    new THREE.BoxGeometry(0.0072, 0.0072, 0.0072),
     lanternMat,
   );
-  lantern.position.set(0.0125, 0.043, 0);
-  group.add(lantern);
+  firebox.position.y = 0.0314;
+  group.add(firebox);
 
-  const lanternRoof = new THREE.Mesh(
-    new THREE.ConeGeometry(0.0054, 0.004, 6),
-    ironMat,
-  );
-  lanternRoof.position.set(0.0125, 0.049, 0);
-  group.add(lanternRoof);
+  // Stone frame posts around the firebox
+  for (const sx of [-1, 1]) {
+    for (const sz of [-1, 1]) {
+      const post = new THREE.Mesh(
+        new THREE.BoxGeometry(0.0016, 0.0076, 0.0016),
+        stoneMat,
+      );
+      post.position.set(sx * 0.0042, 0.0314, sz * 0.0042);
+      group.add(post);
+    }
+  }
 
-  const bottomFinial = new THREE.Mesh(
-    new THREE.ConeGeometry(0.0022, 0.0035, 6),
-    ironMat,
-  );
-  bottomFinial.rotation.x = Math.PI;
-  bottomFinial.position.set(0.0125, 0.037, 0);
-  group.add(bottomFinial);
+  const capGeo = new THREE.CylinderGeometry(0.0022, 0.0088, 0.0048, 4);
+  capGeo.rotateY(Math.PI / 4);
+  const cap = new THREE.Mesh(capGeo, darkStoneMat);
+  cap.position.y = 0.0376;
+  cap.castShadow = true;
+  group.add(cap);
+
+  const knob = new THREE.Mesh(new THREE.SphereGeometry(0.0018, 6, 4), stoneMat);
+  knob.position.y = 0.0414;
+  group.add(knob);
 
   return { group, windowMaterials };
 }
