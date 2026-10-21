@@ -10,6 +10,7 @@ import {
   createHotAirBalloonMesh,
   createLanternPostMesh,
   createPagodaMesh,
+  createSectTerraceMesh,
   createOakTreeMesh,
   createPalmTreeMesh,
   createPastelHouseMesh,
@@ -64,6 +65,12 @@ import {
 } from './cameraZoomRig';
 
 const WORLD_FADE_SECONDS = 1.0;
+/**
+ * The Sect grounds: a fixed, locked zone around the pagoda, the same on every Sect's
+ * world. Its ground is leveled and paved, and nothing can be built or sculpted there.
+ */
+const SECT_ZONE_ANGLE = 0.17;
+const SECT_ZONE_BLEND_ANGLE = 0.3;
 const UP_VEC = new THREE.Vector3(0, 1, 0);
 
 interface SparkleBurst {
@@ -258,6 +265,16 @@ export class PocketWorldController {
 
     this.terrain = createPlanetTerrain();
     this.planetRoot.add(this.terrain.group);
+
+    // Level and lock the Sect grounds, then pave them with the stone terrace
+    const levelRadius = this.terrain.lockFlatZone(
+      this.homeBaseDirection,
+      SECT_ZONE_ANGLE,
+      SECT_ZONE_BLEND_ANGLE,
+    );
+    const terrace = createSectTerraceMesh(levelRadius, SECT_ZONE_ANGLE);
+    terrace.quaternion.setFromUnitVectors(UP_VEC, this.homeBaseDirection);
+    this.planetRoot.add(terrace);
 
     this.objectsGroup = new THREE.Group();
     this.planetRoot.add(this.objectsGroup);
@@ -510,15 +527,8 @@ export class PocketWorldController {
     // Every Sect world starts with its home-base pagoda, facing the default camera
     const pagoda = this.placeStaticObject('pagoda', this.homeBaseDirection, 0, false, false);
 
-    // Stone path leading out from the pagoda's front stairs
+    // The terrace is the paving, so the approach needs no stepping stones
     const frontDir = this.getBuildingEntranceDir(pagoda, 0);
-    const approachDirs = [
-      frontDir,
-      frontDir.clone().lerp(this.homeBaseDirection, -0.45).normalize(),
-    ];
-    approachDirs.forEach((d, i) => {
-      this.placeStaticObject('path', d, i * 0.6, false, false);
-    });
 
     // A pair of stone lanterns flanking the approach
     const right = new THREE.Vector3()
@@ -1520,12 +1530,10 @@ export class PocketWorldController {
       tool === 'remove';
     const isSky = tool === 'cloud' || tool === 'snowcloud' || tool === 'shootingstar';
 
-    // Nothing gets built on, or sculpted under, the home-base pagoda
+    // The Sect grounds are locked: nothing is built or sculpted on the terrace
     if (tool !== 'remove' && !isSky) {
-      const pagoda = this.placedObjects.find((o) => o.type === 'pagoda');
-      const keepClear =
-        this.getObjectCollisionRadius('pagoda') + (isBrush ? 0.06 : 0.012);
-      if (pagoda && localDir.distanceTo(pagoda.dir) < keepClear) {
+      const keepClear = SECT_ZONE_ANGLE + (isBrush ? 0.04 : 0.015);
+      if (localDir.angleTo(this.homeBaseDirection) < keepClear) {
         this.emitSparklesAtDir(localDir, '#ffb8b8');
         return;
       }

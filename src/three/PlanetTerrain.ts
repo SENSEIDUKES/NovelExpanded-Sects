@@ -49,6 +49,16 @@ export interface PlanetTerrainHandles {
   ) => boolean;
   applyRainAtDirection: (dir: THREE.Vector3, dt: number) => void;
   applySnowAtDirection: (dir: THREE.Vector3, dt: number) => void;
+  /**
+   * Level the ground inside a cap around centerDir and lock it against sculpting
+   * (the Sect grounds). Ground just outside eases down to meet the surrounding land.
+   * Returns the level radius the zone was set to.
+   */
+  lockFlatZone: (
+    centerDir: THREE.Vector3,
+    angularRadius: number,
+    blendAngularRadius: number,
+  ) => number;
   /** Recolor land and water for a world type (rain and snow still layer on top) */
   applyPalette: (palette: ResolvedPalette) => void;
   update: (elapsedTime: number, dt: number, nightFactor: number) => void;
@@ -427,8 +437,26 @@ export function createPlanetTerrain(): PlanetTerrainHandles {
   waterMesh.receiveShadow = true;
   group.add(waterMesh);
 
+  // The locked Sect grounds: its vertices ignore sculpting, and surface queries inside
+  // it report the terrace paving (a flat cap at `level`)
+  const lockedVertices = new Set<number>();
+  let lockedZone: { center: THREE.Vector3; angle: number; level: number } | null = null;
+
   const getSurfacePointAndNormal = (dir: THREE.Vector3) => {
     const normDir = dir.clone().normalize();
+
+    // Inside the locked Sect grounds everything stands on the flat terrace paving
+    if (lockedZone && normDir.angleTo(lockedZone.center) <= lockedZone.angle) {
+      const r = lockedZone.level;
+      return {
+        point: normDir.clone().multiplyScalar(r),
+        normal: normDir.clone(),
+        radius: r,
+        isWater: false,
+        isBeach: false,
+        isMountain: false,
+      };
+    }
     let bestDot = -2;
     let bestFacet = facets[0];
 
@@ -485,6 +513,44 @@ export function createPlanetTerrain(): PlanetTerrainHandles {
     return bestDir;
   };
 
+  const lockFlatZone = (
+    centerDir: THREE.Vector3,
+    angularRadius: number,
+    blendAngularRadius: number,
+  ): number => {
+    const center = centerDir.clone().normalize();
+    // Vertices this far out sit under the paving or its wall, so they all get tucked under
+    const coverAngle = angularRadius * 1.25;
+    let highest = seaLevel + 0.02;
+    for (let i = 0; i < uniqueVertices.length; i++) {
+      if (uniqueVertices[i].jitteredDir.angleTo(center) <= coverAngle) {
+        highest = Math.max(highest, uniqueVertices[i].radius);
+      }
+    }
+    // Level with the highest ground there, plus a little lift so it reads as raised
+    const levelRadius = highest + 0.004;
+    const tuckedRadius = levelRadius - 0.003;
+
+    for (let i = 0; i < uniqueVertices.length; i++) {
+      const uv = uniqueVertices[i];
+      const angle = uv.jitteredDir.angleTo(center);
+      if (angle <= coverAngle) {
+        uv.radius = tuckedRadius;
+        lockedVertices.add(i);
+      } else if (angle < blendAngularRadius) {
+        const t = (angle - coverAngle) / (blendAngularRadius - coverAngle);
+        const ease = t * t * (3 - 2 * t);
+        uv.radius = THREE.MathUtils.lerp(tuckedRadius, uv.radius, ease);
+      }
+    }
+
+    lockedZone = { center, angle: angularRadius, level: levelRadius };
+    updateTerrainGeometryAndColors();
+    updateTerrainColorsOnly();
+    updateWaterColors();
+    return levelRadius;
+  };
+
   const sculptAtDirection = (
     dir: THREE.Vector3,
     mode: 'raise' | 'lower' | 'mountain' | 'lake',
@@ -511,6 +577,7 @@ export function createPlanetTerrain(): PlanetTerrainHandles {
 
     let modified = false;
     for (let i = 0; i < uniqueVertices.length; i++) {
+      if (lockedVertices.has(i)) continue;
       const uv = uniqueVertices[i];
       const dist = uv.jitteredDir.distanceTo(normDir);
       if (dist < brushRadius) {
@@ -625,6 +692,7 @@ export function createPlanetTerrain(): PlanetTerrainHandles {
     sculptAtDirection,
     applyRainAtDirection,
     applySnowAtDirection,
+    lockFlatZone,
     applyPalette,
     update,
   };
