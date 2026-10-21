@@ -196,12 +196,12 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     id: 'villager',
-    label: 'Villagers',
+    label: 'Disciples',
     category: 'nature',
     accentBg: 'bg-[#fde8c8]',
     accentBorder: 'border-[#e6be83]',
     accentText: 'text-[#664414]',
-    description: 'Welcome a villager who travels between homes, campfires & well',
+    description: 'Welcome a disciple who walks the Sect grounds',
   },
   {
     id: 'sheep',

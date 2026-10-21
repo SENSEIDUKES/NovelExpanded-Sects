@@ -3744,20 +3744,25 @@ export function createShootingStarMesh(): THREE.Group {
   return group;
 }
 
-const VILLAGER_COLORS = [
-  '#e35b54',
-  '#4c8fd6',
-  '#f0a637',
-  '#9c6cd4',
-  '#45b583',
-  '#e8769b',
-  '#d9763d',
-  '#52b5c4',
+// Disciple robes: muted Eastern tones, each paired with a contrasting trim for collar, sash and cuffs
+const DISCIPLE_ROBES = [
+  { robe: '#3f7d6a', trim: '#efe8d6' }, // jade
+  { robe: '#34416e', trim: '#d7b45f' }, // indigo
+  { robe: '#9a2e2c', trim: '#2b2a2f' }, // crimson
+  { robe: '#ebe6d8', trim: '#3f7d6a' }, // off-white
+  { robe: '#2b2a30', trim: '#a8322e' }, // ink
+  { robe: '#66456f', trim: '#efe8d6' }, // plum
+  { robe: '#b58a40', trim: '#4a3424' }, // ochre
+  { robe: '#2e6b75', trim: '#efe8d6' }, // teal
 ];
 
-const HAIR_COLORS = ['#4a3222', '#8c4a27', '#d9a44e', '#2c221e', '#6e472b'];
-const TROUSER_COLORS = ['#3b495e', '#594636', '#465747', '#634f3d'];
+const HAIR_COLORS = ['#1f1a17', '#2c221e', '#3b2a20', '#1a1a1f', '#4a3222'];
+const LEG_COLORS = ['#2b2a2f', '#3a2f28', '#2f3434', '#3b3330'];
 
+/**
+ * A Sect disciple in long robes. Internally still the "villager": the scene animates
+ * the returned pivots (body bob, leg and arm swing, head turn) exactly as before.
+ */
 export function createVillagerMesh(colorIdx: number): {
   group: THREE.Group;
   bodyMesh: THREE.Object3D;
@@ -3772,69 +3777,66 @@ export function createVillagerMesh(colorIdx: number): {
   const inner = new THREE.Group();
   inner.scale.setScalar(1.22);
 
-  const tunicColor = VILLAGER_COLORS[colorIdx % VILLAGER_COLORS.length];
-  const tunicMat = new THREE.MeshStandardMaterial({
-    color: tunicColor,
-    roughness: 0.72,
+  const palette = DISCIPLE_ROBES[colorIdx % DISCIPLE_ROBES.length];
+  const robeMat = new THREE.MeshStandardMaterial({
+    color: palette.robe,
+    roughness: 0.74,
     flatShading: true,
   });
-  const trouserMat = new THREE.MeshStandardMaterial({
-    color: TROUSER_COLORS[colorIdx % TROUSER_COLORS.length],
+  const trimMat = new THREE.MeshStandardMaterial({
+    color: palette.trim,
+    roughness: 0.7,
+    flatShading: true,
+  });
+  const legMat = new THREE.MeshStandardMaterial({
+    color: LEG_COLORS[colorIdx % LEG_COLORS.length],
     roughness: 0.8,
     flatShading: true,
   });
-  const bootMat = new THREE.MeshStandardMaterial({
-    color: '#3b2618',
+  const shoeMat = new THREE.MeshStandardMaterial({
+    color: '#1f1c1c',
     roughness: 0.78,
   });
   const skinMat = new THREE.MeshStandardMaterial({
-    color: '#f7d2b5',
+    color: '#f2cfb0',
     roughness: 0.65,
-  });
-  const cheekMat = new THREE.MeshStandardMaterial({
-    color: '#f29488',
-    roughness: 0.7,
   });
   const hairMat = new THREE.MeshStandardMaterial({
     color: HAIR_COLORS[colorIdx % HAIR_COLORS.length],
     roughness: 0.82,
     flatShading: true,
   });
-  const creamClothMat = new THREE.MeshStandardMaterial({
-    color: '#fcf7eb',
-    roughness: 0.75,
-    flatShading: true,
+  const goldMat = new THREE.MeshStandardMaterial({
+    color: '#d6ad55',
+    metalness: 0.6,
+    roughness: 0.32,
   });
-  const beltMat = new THREE.MeshStandardMaterial({
-    color: '#4f3522',
-    roughness: 0.75,
-  });
-  const buckleMat = new THREE.MeshStandardMaterial({
-    color: '#e5bc57',
-    metalness: 0.65,
-    roughness: 0.3,
+  const jadeMat = new THREE.MeshStandardMaterial({
+    color: '#6fc29a',
+    roughness: 0.25,
+    metalness: 0.1,
   });
 
-  // 1. Articulated Left & Right Legs with Trousers & Rounded Boots
+  // 1. Legs: short dark legs and cloth shoes that peek out under the robe hem mid-stride
   const buildLeg = (side: number) => {
     const legPivot = new THREE.Group();
-    legPivot.position.set(side * 0.0026, 0.0075, 0);
+    legPivot.position.set(side * 0.0024, 0.0075, 0);
 
     const legShaft = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.0017, 0.0015, 0.0062, 8),
-      trouserMat,
+      new THREE.CylinderGeometry(0.0014, 0.0013, 0.0058, 8),
+      legMat,
     );
-    legShaft.position.y = -0.003;
+    legShaft.position.y = -0.0029;
     legShaft.castShadow = true;
     legPivot.add(legShaft);
 
-    const boot = new THREE.Mesh(
-      new THREE.BoxGeometry(0.0032, 0.0026, 0.0048),
-      bootMat,
+    const shoe = new THREE.Mesh(
+      new THREE.BoxGeometry(0.0027, 0.0018, 0.0042),
+      shoeMat,
     );
-    boot.position.set(0, -0.0062, 0.0008);
-    boot.castShadow = true;
-    legPivot.add(boot);
+    shoe.position.set(0, -0.0064, 0.0008);
+    shoe.castShadow = true;
+    legPivot.add(shoe);
 
     return legPivot;
   };
@@ -3843,221 +3845,249 @@ export function createVillagerMesh(colorIdx: number): {
   const rightLeg = buildLeg(1);
   inner.add(leftLeg, rightLeg);
 
-  // 2. Sculpted Torso: Flared Tunic Skirt + Upper Bodice + Belt + Collar/Apron
+  // 2. Robe: long flared skirt, upper body, crossed collar, cloth sash with a jade pendant
   const torsoGroup = new THREE.Group();
 
   const skirt = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.0044, 0.0068, 0.0082, 10),
-    tunicMat,
+    new THREE.CylinderGeometry(0.0046, 0.0072, 0.0118, 10),
+    robeMat,
   );
-  skirt.position.y = 0.0098;
+  skirt.position.y = 0.0087;
   skirt.castShadow = true;
   torsoGroup.add(skirt);
 
-  const upperChest = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.0046, 0.0044, 0.0075, 10),
-    tunicMat,
+  const hem = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.0072, 0.0073, 0.0009, 10),
+    trimMat,
   );
-  upperChest.position.y = 0.0162;
-  upperChest.castShadow = true;
-  torsoGroup.add(upperChest);
+  hem.position.y = 0.0032;
+  torsoGroup.add(hem);
 
-  // Rounded shoulders collar / shawl
-  const collar = new THREE.Mesh(
-    new THREE.TorusGeometry(0.0038, 0.0013, 6, 12),
-    creamClothMat,
+  const upperBody = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.0043, 0.0046, 0.0072, 10),
+    robeMat,
   );
-  collar.rotation.x = Math.PI / 2;
-  collar.position.y = 0.0195;
-  torsoGroup.add(collar);
+  upperBody.position.y = 0.0167;
+  upperBody.castShadow = true;
+  torsoGroup.add(upperBody);
 
-  // Leather waist belt + brass buckle
-  const belt = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.0047, 0.0049, 0.0018, 10),
-    beltMat,
-  );
-  belt.position.y = 0.0132;
-  torsoGroup.add(belt);
-
-  const buckle = new THREE.Mesh(
-    new THREE.BoxGeometry(0.0022, 0.0022, 0.0012),
-    buckleMat,
-  );
-  buckle.position.set(0, 0.0132, 0.0046);
-  torsoGroup.add(buckle);
-
-  // Cozy front apron or satchel on some villagers
-  if (colorIdx % 3 === 0) {
-    const apron = new THREE.Mesh(
-      new THREE.BoxGeometry(0.0056, 0.0068, 0.0015),
-      creamClothMat,
+  // Overlapping V collar, the robe's signature line
+  for (const side of [-1, 1]) {
+    const lapel = new THREE.Mesh(
+      new THREE.BoxGeometry(0.0012, 0.0074, 0.0008),
+      trimMat,
     );
-    apron.position.set(0, 0.0096, 0.0052);
-    apron.rotation.x = -0.18;
-    torsoGroup.add(apron);
+    lapel.position.set(side * 0.0013, 0.0172, 0.0043);
+    lapel.rotation.z = -side * 0.42;
+    lapel.rotation.x = -0.08;
+    torsoGroup.add(lapel);
   }
+
+  const neckband = new THREE.Mesh(
+    new THREE.TorusGeometry(0.0031, 0.0008, 6, 12),
+    trimMat,
+  );
+  neckband.rotation.x = Math.PI / 2;
+  neckband.position.y = 0.0202;
+  torsoGroup.add(neckband);
+
+  const sash = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.0048, 0.005, 0.0026, 10),
+    trimMat,
+  );
+  sash.position.y = 0.0135;
+  torsoGroup.add(sash);
+
+  const pendant = new THREE.Mesh(new THREE.OctahedronGeometry(0.0011, 0), jadeMat);
+  pendant.position.set(0.0014, 0.0113, 0.0052);
+  torsoGroup.add(pendant);
+
+  const tassel = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.0003, 0.0005, 0.0026, 5),
+    new THREE.MeshStandardMaterial({ color: '#a8322e', roughness: 0.7 }),
+  );
+  tassel.position.set(0.0014, 0.0094, 0.0053);
+  torsoGroup.add(tassel);
 
   inner.add(torsoGroup);
 
-  // 3. Articulated Swinging Left & Right Arms with Sleeves & Hands
-  const buildArm = (side: number, hasBasket: boolean) => {
+  // 3. Arms: wide sleeves flaring at a trimmed cuff, hands just showing
+  const propStyle = colorIdx % 3;
+  const buildArm = (side: number, holdsScroll: boolean) => {
     const armPivot = new THREE.Group();
     armPivot.position.set(side * 0.0056, 0.0185, 0);
     armPivot.rotation.z = -side * 0.18;
 
     const sleeve = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.0016, 0.0014, 0.0068, 8),
-      tunicMat,
+      new THREE.CylinderGeometry(0.0016, 0.0022, 0.0055, 8),
+      robeMat,
     );
-    sleeve.position.y = -0.0032;
+    sleeve.position.y = -0.0026;
     sleeve.castShadow = true;
     armPivot.add(sleeve);
 
-    const hand = new THREE.Mesh(
-      new THREE.SphereGeometry(0.0016, 8, 8),
-      skinMat,
+    const cuff = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.0022, 0.0033, 0.0026, 8),
+      trimMat,
     );
-    hand.position.y = -0.0072;
+    cuff.position.y = -0.0064;
+    cuff.castShadow = true;
+    armPivot.add(cuff);
+
+    const hand = new THREE.Mesh(new THREE.SphereGeometry(0.0013, 8, 8), skinMat);
+    hand.position.y = -0.0081;
     armPivot.add(hand);
 
-    if (hasBasket) {
-      const basket = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.0028, 0.002, 0.0032, 7),
-        new THREE.MeshStandardMaterial({ color: '#b8864c', roughness: 0.85 }),
+    if (holdsScroll) {
+      const scroll = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.0011, 0.0011, 0.0058, 8),
+        new THREE.MeshStandardMaterial({ color: '#efe3c4', roughness: 0.8 }),
       );
-      basket.position.set(side * 0.0012, -0.009, 0.0015);
-      armPivot.add(basket);
+      scroll.rotation.x = Math.PI / 2;
+      scroll.position.set(0, -0.0084, 0.0014);
+      armPivot.add(scroll);
+
+      for (const end of [-1, 1]) {
+        const knob = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.0007, 0.0007, 0.0007, 6),
+          new THREE.MeshStandardMaterial({ color: '#5e3a22', roughness: 0.7 }),
+        );
+        knob.rotation.x = Math.PI / 2;
+        knob.position.set(0, -0.0084, 0.0014 + end * 0.0032);
+        armPivot.add(knob);
+      }
     }
 
     return armPivot;
   };
 
   const leftArm = buildArm(-1, false);
-  const rightArm = buildArm(1, colorIdx % 3 === 1);
+  const rightArm = buildArm(1, propStyle === 1);
   inner.add(leftArm, rightArm);
 
-  // 4. Expressive Head with Face, Eyes, Rosy Cheeks, Hair & Varied Hats
+  // Sword slung across the back
+  if (propStyle === 0) {
+    const swordGroup = new THREE.Group();
+    const scabbard = new THREE.Mesh(
+      new THREE.BoxGeometry(0.0012, 0.0168, 0.0011),
+      new THREE.MeshStandardMaterial({ color: '#2a1f1c', roughness: 0.6 }),
+    );
+    swordGroup.add(scabbard);
+    const guard = new THREE.Mesh(new THREE.BoxGeometry(0.0034, 0.0007, 0.0014), goldMat);
+    guard.position.y = 0.0086;
+    swordGroup.add(guard);
+    const hilt = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.0005, 0.0005, 0.0034, 6),
+      new THREE.MeshStandardMaterial({ color: '#7a2a2a', roughness: 0.6 }),
+    );
+    hilt.position.y = 0.0106;
+    swordGroup.add(hilt);
+    const pommel = new THREE.Mesh(new THREE.SphereGeometry(0.0007, 6, 6), goldMat);
+    pommel.position.y = 0.0125;
+    swordGroup.add(pommel);
+
+    swordGroup.position.set(0, 0.0158, -0.0052);
+    swordGroup.rotation.z = 0.62;
+    swordGroup.traverse((o) => {
+      if ((o as THREE.Mesh).isMesh) o.castShadow = true;
+    });
+    inner.add(swordGroup);
+  }
+
+  // 4. Head: calm face and one of four cultivator hairstyles
   const headGroup = new THREE.Group();
   headGroup.position.set(0, 0.0245, 0);
 
-  const head = new THREE.Mesh(
-    new THREE.SphereGeometry(0.0052, 12, 12),
-    skinMat,
-  );
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.0052, 12, 12), skinMat);
   head.castShadow = true;
   headGroup.add(head);
 
-  // Tiny nose on +Z front of face
-  const nose = new THREE.Mesh(
-    new THREE.SphereGeometry(0.001, 6, 6),
-    skinMat,
-  );
+  const nose = new THREE.Mesh(new THREE.SphereGeometry(0.001, 6, 6), skinMat);
   nose.position.set(0, -0.0002, 0.0051);
   headGroup.add(nose);
 
-  // Glossy dark eyes + rosy cheeks
   const eyeMat = new THREE.MeshStandardMaterial({
     color: '#1f1916',
     roughness: 0.3,
   });
   for (const side of [-1, 1]) {
-    const eye = new THREE.Mesh(
-      new THREE.SphereGeometry(0.00075, 6, 6),
-      eyeMat,
-    );
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.00075, 6, 6), eyeMat);
     eye.position.set(side * 0.0019, 0.0008, 0.0046);
     headGroup.add(eye);
 
-    const cheek = new THREE.Mesh(
-      new THREE.SphereGeometry(0.0009, 6, 6),
-      cheekMat,
-    );
-    cheek.scale.set(1.2, 0.8, 0.5);
-    cheek.position.set(side * 0.0028, -0.0007, 0.0043);
-    headGroup.add(cheek);
-
-    // Tiny ears
-    const ear = new THREE.Mesh(
-      new THREE.SphereGeometry(0.0011, 6, 6),
-      skinMat,
-    );
+    const ear = new THREE.Mesh(new THREE.SphereGeometry(0.0011, 6, 6), skinMat);
     ear.position.set(side * 0.005, 0.0, 0.0);
     headGroup.add(ear);
   }
 
-  // Sculpted Hair cap + back bun or side locks
   const hairCap = new THREE.Mesh(
-    new THREE.SphereGeometry(
-      0.0054,
-      10,
-      8,
-      0,
-      Math.PI * 2,
-      0,
-      Math.PI * 0.58,
-    ),
+    new THREE.SphereGeometry(0.0054, 10, 8, 0, Math.PI * 2, 0, Math.PI * 0.58),
     hairMat,
   );
   hairCap.rotation.x = -0.35;
   headGroup.add(hairCap);
 
-  const hairBun = new THREE.Mesh(
-    new THREE.SphereGeometry(0.0024, 8, 8),
-    hairMat,
-  );
-  hairBun.position.set(0, 0.0005, -0.0052);
-  headGroup.add(hairBun);
+  const hairStyle = colorIdx % 4;
+  if (hairStyle === 0) {
+    // Topknot held by a small gold crown
+    const topknot = new THREE.Mesh(new THREE.SphereGeometry(0.0022, 8, 8), hairMat);
+    topknot.position.set(0, 0.0058, -0.0008);
+    headGroup.add(topknot);
 
-  // Distinct Headwear variants
-  const hatStyle = colorIdx % 4;
-  if (hatStyle === 0) {
-    // Straw Sunhat with colored ribbon band
-    const strawMat = new THREE.MeshStandardMaterial({
-      color: '#edd495',
-      roughness: 0.82,
-    });
-    const brim = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.0088, 0.0092, 0.0012, 12),
-      strawMat,
-    );
-    brim.position.y = 0.0038;
-    brim.rotation.x = -0.12;
-    headGroup.add(brim);
-
-    const crown = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.0046, 0.0052, 0.0036, 10),
-      strawMat,
-    );
-    crown.position.y = 0.0056;
-    crown.rotation.x = -0.12;
+    const crown = new THREE.Mesh(new THREE.BoxGeometry(0.0026, 0.0018, 0.0032), goldMat);
+    crown.position.set(0, 0.0068, -0.0008);
     headGroup.add(crown);
 
-    const ribbon = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.0053, 0.0053, 0.001, 10),
-      tunicMat,
+    const crownPin = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.0003, 0.0003, 0.0052, 5),
+      goldMat,
     );
-    ribbon.position.y = 0.0045;
-    ribbon.rotation.x = -0.12;
+    crownPin.rotation.z = Math.PI / 2;
+    crownPin.position.set(0, 0.0068, -0.0008);
+    headGroup.add(crownPin);
+  } else if (hairStyle === 1) {
+    // Back bun pierced by a long jade-tipped hairpin
+    const bun = new THREE.Mesh(new THREE.SphereGeometry(0.0024, 8, 8), hairMat);
+    bun.position.set(0, 0.004, -0.0044);
+    headGroup.add(bun);
+
+    const hairpin = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.0003, 0.0003, 0.0088, 5),
+      goldMat,
+    );
+    hairpin.rotation.z = 1.25;
+    hairpin.position.set(0, 0.0044, -0.0046);
+    headGroup.add(hairpin);
+
+    const bead = new THREE.Mesh(new THREE.SphereGeometry(0.0007, 6, 6), jadeMat);
+    bead.position.set(0.0041, 0.0058, -0.0046);
+    headGroup.add(bead);
+  } else if (hairStyle === 2) {
+    // Long hair tied back with a ribbon, hanging down the back
+    const tail = new THREE.Mesh(new THREE.BoxGeometry(0.0062, 0.0112, 0.0016), hairMat);
+    tail.position.set(0, -0.0026, -0.0047);
+    tail.rotation.x = 0.08;
+    tail.castShadow = true;
+    headGroup.add(tail);
+
+    const ribbon = new THREE.Mesh(new THREE.BoxGeometry(0.0046, 0.0012, 0.002), trimMat);
+    ribbon.position.set(0, 0.0018, -0.005);
     headGroup.add(ribbon);
-  } else if (hatStyle === 1) {
-    // Jaunty tilted wool beret
-    const beret = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.0058, 0.0045, 0.0024, 10),
-      tunicMat,
-    );
-    beret.position.set(0.0008, 0.0048, -0.0005);
-    beret.rotation.z = -0.22;
-    beret.rotation.x = -0.15;
-    headGroup.add(beret);
-  } else if (hatStyle === 2) {
-    // Cozy pointed gnome/country cap
-    const cap = new THREE.Mesh(
-      new THREE.ConeGeometry(0.0052, 0.0075, 10),
-      tunicMat,
-    );
-    cap.position.set(0, 0.0068, -0.001);
-    cap.rotation.x = -0.28;
-    headGroup.add(cap);
+  } else {
+    // Wandering cultivator's conical bamboo hat
+    const bambooMat = new THREE.MeshStandardMaterial({
+      color: '#c9a86a',
+      roughness: 0.85,
+      flatShading: true,
+    });
+    const hat = new THREE.Mesh(new THREE.ConeGeometry(0.0094, 0.004, 14), bambooMat);
+    hat.position.y = 0.0062;
+    hat.castShadow = true;
+    headGroup.add(hat);
+
+    const hatKnob = new THREE.Mesh(new THREE.SphereGeometry(0.0007, 6, 6), bambooMat);
+    hatKnob.position.y = 0.0085;
+    headGroup.add(hatKnob);
   }
 
   inner.add(headGroup);
