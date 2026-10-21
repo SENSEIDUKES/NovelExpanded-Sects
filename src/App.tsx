@@ -1,35 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  Anchor,
-  ArrowDownToLine,
-  ArrowUpFromLine,
-  Bird,
-  Bug,
-  Castle,
-  Cloud,
-  CloudSnow,
   Compass,
-  Eraser,
-  Fan,
-  Flame,
-  Flower2,
-  Home,
-  LampFloor,
   Moon,
-  Mountain,
   Pencil,
   Play,
-  Rainbow,
-  Sailboat,
   SlidersHorizontal,
-  Sparkles,
   Sun,
   Sunset,
-  TowerControl,
-  Trees,
-  Users,
-  Waves,
-  Wind,
   X,
   ZoomIn,
   ZoomOut,
@@ -38,89 +15,10 @@ import { PocketWorldController } from './three/PocketWorldScene';
 import {
   CameraViewId,
   TimeMode,
-  TOOL_DEFINITIONS,
-  ToolCategory,
   ToolId,
   WorldState,
-  FARM_PROTOTYPE_TOOLS,
 } from './types/world';
-
-const TOOL_GROUPS: { category: Exclude<ToolCategory, 'all'>; title: string }[] = [
-  { category: 'village', title: 'Village & Landmarks' },
-  { category: 'water', title: 'Water & Coastal Life' },
-  { category: 'nature', title: 'Nature & Life' },
-  { category: 'weather', title: 'Weather & Sky' },
-  { category: 'sculpt', title: 'Sculpt & Clear' },
-];
-
-function renderToolIcon(id: ToolId) {
-  const cls = 'w-4 h-4 shrink-0';
-  switch (id) {
-    case 'tree':
-      return <Trees className={cls} />;
-    case 'house':
-      return <Home className={cls} />;
-    case 'windmill':
-      return <Fan className={cls} />;
-    case 'lighthouse':
-      return <TowerControl className={cls} />;
-    case 'watchtower':
-      return <Castle className={cls} />;
-    case 'campfire':
-      return <Flame className={cls} />;
-    case 'lantern':
-      return <LampFloor className={cls} />;
-    case 'balloon':
-      return <Wind className={cls} />;
-    case 'sailboat':
-      return <Sailboat className={cls} />;
-    case 'dock':
-      return <Anchor className={cls} />;
-    case 'duck':
-      return <Bird className={cls} />;
-    case 'mountain':
-      return <Mountain className={cls} />;
-    case 'lake':
-      return <Waves className={cls} />;
-    case 'flower':
-      return <Flower2 className={cls} />;
-    case 'beehive':
-      return <Bug className={cls} />;
-    case 'cloud':
-      return <Cloud className={cls} />;
-    case 'snowcloud':
-      return <CloudSnow className={cls} />;
-    case 'rainbow':
-      return <Rainbow className={cls} />;
-    case 'shootingstar':
-      return <Sparkles className={cls} />;
-    case 'villager':
-      return <Users className={cls} />;
-    case 'sheep':
-      return (
-        <svg
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          className={cls}
-          aria-hidden="true"
-        >
-          <path d="M8 15a4 4 0 0 1-2-7.5 4.5 4.5 0 0 1 8.5-1A3.5 3.5 0 0 1 18 10a3.5 3.5 0 0 1-1 6.8H8Z" />
-          <path d="M9 17v3" />
-          <path d="M15 17v3" />
-        </svg>
-      );
-    case 'raise':
-      return <ArrowUpFromLine className={cls} />;
-    case 'lower':
-      return <ArrowDownToLine className={cls} />;
-    case 'remove':
-      return <Eraser className={cls} />;
-  }
-}
+import { DockCategory, ToolDock } from './components/ToolDock';
 
 export default function App() {
   const mountRef = useRef<HTMLDivElement | null>(null);
@@ -155,6 +53,8 @@ export default function App() {
   const [isEditingName, setIsEditingName] = useState(false);
   const [webglLost, setWebglLost] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
+  // Toolbar category currently opened (null = showing the category icons)
+  const [openCategory, setOpenCategory] = useState<DockCategory | null>(null);
 
   useEffect(() => {
     const container = mountRef.current;
@@ -188,15 +88,20 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (!filtersOpen) return;
+    if (!filtersOpen && !openCategory) return;
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        setFiltersOpen(false);
+        // Close the filters sheet first; otherwise step back out of the open category
+        if (filtersOpen) {
+          setFiltersOpen(false);
+        } else {
+          setOpenCategory(null);
+        }
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [filtersOpen]);
+  }, [filtersOpen, openCategory]);
 
   // Tapping the armed tool again disarms it
   const handleSelectTool = (tool: ToolId) => {
@@ -229,11 +134,7 @@ export default function App() {
     }
   };
 
-  const orderedTools = TOOL_GROUPS.flatMap((group) =>
-    TOOL_DEFINITIONS.filter(
-      (t) => t.category === group.category && !FARM_PROTOTYPE_TOOLS.includes(t.id),
-    ),
-  );
+
 
   return (
     <div className="flex w-screen h-screen overflow-hidden select-none bg-[#070913]">
@@ -279,32 +180,13 @@ export default function App() {
 
           <div className="w-8 h-px bg-[#e2d7c5] shrink-0" aria-hidden="true" />
 
-          <div
-            className="flex-1 w-full flex flex-col items-center gap-2 overflow-y-auto no-scrollbar py-0.5"
-            role="toolbar"
-            aria-orientation="vertical"
-            aria-label="World building tools"
-          >
-            {orderedTools.map((tool) => {
-              const isSelected = worldState.activeTool === tool.id;
-              return (
-                <button
-                  key={tool.id}
-                  type="button"
-                  onClick={() => handleSelectTool(tool.id)}
-                  title={tool.label}
-                  aria-label={tool.label}
-                  className={`w-11 h-11 shrink-0 flex items-center justify-center rounded-xl border transition-all duration-150 cursor-pointer ${
-                    isSelected
-                      ? `${tool.accentBg} ${tool.accentBorder} ${tool.accentText} shadow-xs`
-                      : 'bg-[#f3ede2] border-[#e2d7c5] text-[#54483c] hover:bg-[#eae1d3] hover:text-[#2b221b]'
-                  }`}
-                >
-                  {renderToolIcon(tool.id)}
-                </button>
-              );
-            })}
-          </div>
+          <ToolDock
+            orientation="vertical"
+            activeTool={worldState.activeTool}
+            onSelectTool={handleSelectTool}
+            openCategory={openCategory}
+            onOpenCategory={setOpenCategory}
+          />
         </aside>
       )}
 
@@ -557,31 +439,13 @@ export default function App() {
             <span>Filters</span>
           </button>
 
-          <div
-            className="flex items-center gap-2 overflow-x-auto no-scrollbar py-0.5 pr-1"
-            role="toolbar"
-            aria-label="World building tools"
-          >
-            {orderedTools.map((tool) => {
-              const isSelected = worldState.activeTool === tool.id;
-              return (
-                <button
-                  key={tool.id}
-                  type="button"
-                  onClick={() => handleSelectTool(tool.id)}
-                  title={tool.label}
-                  aria-label={tool.label}
-                  className={`w-11 h-11 shrink-0 flex items-center justify-center rounded-xl border transition-all duration-150 cursor-pointer ${
-                    isSelected
-                      ? `${tool.accentBg} ${tool.accentBorder} ${tool.accentText} shadow-xs`
-                      : 'bg-[#f3ede2] border-[#e2d7c5] text-[#54483c] hover:bg-[#eae1d3] hover:text-[#2b221b]'
-                  }`}
-                >
-                  {renderToolIcon(tool.id)}
-                </button>
-              );
-            })}
-          </div>
+          <ToolDock
+            orientation="horizontal"
+            activeTool={worldState.activeTool}
+            onSelectTool={handleSelectTool}
+            openCategory={openCategory}
+            onOpenCategory={setOpenCategory}
+          />
         </div>
       )}
 

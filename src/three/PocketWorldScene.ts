@@ -553,7 +553,7 @@ export class PocketWorldController {
       this.placeStaticObject('flower', d, i * 0.9, true, false);
     });
 
-    // A handful of residents coming and going from the pagoda
+    // A handful of disciples coming and going from the pagoda
     for (let i = 0; i < 4; i++) {
       const lateral = (i - 1.5) * 0.014;
       this.spawnVillager(this.getBuildingEntranceDir(pagoda, lateral), false);
