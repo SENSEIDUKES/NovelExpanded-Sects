@@ -39,6 +39,13 @@ import {
 import { createPlanetTerrain } from './PlanetTerrain';
 import { createRoomEnvironment } from './RoomEnvironment';
 import {
+  GlobeOrbit,
+  globeQuaternion,
+  radiansPerPixel,
+  solveFacingOrientation,
+  sphereHitWorld,
+} from './globeOrbit';
+import {
   computeCameraPoseForZoom,
   computeNextPinchZoomDistance,
   computeNextWheelZoomDistance,
@@ -124,7 +131,16 @@ export class PocketWorldController {
   private isDraggingSpin = false;
   private pointerDownPos = new THREE.Vector2();
   private lastPointerPos = new THREE.Vector2();
-  private angularVelocity = new THREE.Vector2(0.0, 0.0);
+  // Planet orientation (spin, tilt, fling glide and eased camera transitions)
+  private globe = new GlobeOrbit();
+  // A touch that lands while the globe is moving only stops it; it doesn't place anything
+  private pointerDownStoppedMotion = false;
+  private lastTapTime = 0;
+  private lastTapPos = new THREE.Vector2();
+  // Planet-space spot grabbed by the current drag; kept under the pointer while it moves
+  private grabbedLocalDir: THREE.Vector3 | null = null;
+  private probeCamera = new THREE.PerspectiveCamera();
+  private probeRaycaster = new THREE.Raycaster();
 
   // Multi-touch pinch-to-zoom state
   private activePointers = new Map<number, THREE.Vector2>();
@@ -1773,6 +1789,109 @@ export class PocketWorldController {
     }
   }
 
+  /** Planet surface radius in world units */
+  private get surfaceRadius() {
+    return 0.75 * PLANET_SCALE;
+  }
+
+  private radiansPerScreenPixel(zoomDist = this.camera.position.length()) {
+    return radiansPerPixel(
+      zoomDist,
+      this.renderer.domElement.clientHeight || window.innerHeight,
+      this.camera.fov,
+      this.surfaceRadius,
+    );
+  }
+
+  private screenToNdc(screenX: number, screenY: number) {
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    return new THREE.Vector2(
+      ((screenX - rect.left) / rect.width) * 2 - 1,
+      -((screenY - rect.top) / rect.height) * 2 + 1,
+    );
+  }
+
+  /** A stand-in camera posed where the real one is headed, for planning moves ahead of time */
+  private poseProbeCamera(position: THREE.Vector3, lookAt: THREE.Vector3) {
+    this.probeCamera.fov = this.camera.fov;
+    this.probeCamera.aspect = this.camera.aspect;
+    this.probeCamera.near = this.camera.near;
+    this.probeCamera.far = this.camera.far;
+    this.probeCamera.updateProjectionMatrix();
+    this.probeCamera.position.copy(position);
+    this.probeCamera.lookAt(lookAt);
+    this.probeCamera.updateMatrixWorld(true);
+    return this.probeCamera;
+  }
+
+  /**
+   * Changes zoom while keeping the surface spot under (screenX, screenY) under it,
+   * like zooming a map toward the cursor or pinch midpoint.
+   */
+  private zoomTowardScreenPoint(newZoomDist: number, screenX: number, screenY: number) {
+    newZoomDist = THREE.MathUtils.clamp(newZoomDist, MIN_ZOOM_DIST, MAX_ZOOM_DIST);
+    if (newZoomDist === this.targetZoomDist) return;
+    const ndc = this.screenToNdc(screenX, screenY);
+
+    // The spot under the pointer, judged from where the camera and globe are headed
+    const before = sphereHitWorld(
+      this.poseProbeCamera(this.camTargetPos, this.camTargetLook),
+      ndc,
+      this.surfaceRadius,
+      this.probeRaycaster,
+    );
+
+    this.targetZoomDist = newZoomDist;
+    this.syncCameraTargetsFromZoom(false);
+    if (!before) return;
+
+    const after = sphereHitWorld(
+      this.poseProbeCamera(this.camTargetPos, this.camTargetLook),
+      ndc,
+      this.surfaceRadius,
+      this.probeRaycaster,
+    );
+    if (!after) return;
+
+    const targetQuat = globeQuaternion(this.globe.targetYaw, this.globe.targetPitch);
+    const localSpot = before.normalize().applyQuaternion(targetQuat.invert());
+    const goal = solveFacingOrientation(
+      localSpot,
+      after,
+      this.globe.targetYaw,
+      this.globe.targetPitch,
+    );
+    this.globe.transitionTo(goal.yaw, goal.pitch);
+  }
+
+  /** Double-tap / double-click: glide the tapped spot to the middle of the view and move in */
+  private focusOnSurfaceDir(localDir: THREE.Vector3) {
+    this.introSpinActive = false;
+    this.targetZoomDist = THREE.MathUtils.clamp(
+      this.targetZoomDist * 0.62,
+      Math.min(1.45, this.targetZoomDist),
+      this.targetZoomDist,
+    );
+    this.syncCameraTargetsFromZoom(false);
+
+    // Where the new view's center ray meets the planet is where the tapped spot should end up
+    const viewDir = this.camTargetLook.clone().sub(this.camTargetPos).normalize();
+    const ray = new THREE.Ray(this.camTargetPos.clone(), viewDir);
+    const hit = ray.intersectSphere(
+      new THREE.Sphere(new THREE.Vector3(), this.surfaceRadius),
+      new THREE.Vector3(),
+    );
+    const screenCenterDir = hit ? hit.normalize() : this.camAnchorDir.clone();
+
+    const goal = solveFacingOrientation(
+      localDir,
+      screenCenterDir,
+      this.globe.targetYaw,
+      this.globe.targetPitch,
+    );
+    this.globe.transitionTo(goal.yaw, goal.pitch);
+  }
+
   public zoomByFactor(factor: number) {
     if (this.tourActive) return;
     this.introSpinActive = false;
@@ -1791,6 +1910,12 @@ export class PocketWorldController {
     this.camBaseLook.copy(preset.baseLookAt);
     this.targetZoomDist = preset.defaultDistance;
     this.syncCameraTargetsFromZoom(immediate);
+    // Presets are framed for the planet's home orientation, so bring it back around
+    if (immediate) {
+      this.globe.setImmediate(0, 0);
+    } else {
+      this.globe.transitionTo(0, 0);
+    }
 
     this.onStateChange((prev) => ({ ...prev, activeView: view }));
   }
@@ -1823,7 +1948,7 @@ export class PocketWorldController {
     (this.cursorRing.material as THREE.MeshBasicMaterial).color.set('#fff8d6');
 
     // Reset planet orientation & camera to crisp morning establishing frame
-    this.angularVelocity.set(0, 0);
+    this.globe.setImmediate(0, 0);
     this.planetRoot.quaternion.identity();
     this.timeMode = 'auto';
     this.timeOfDay = 0.22;
@@ -1851,6 +1976,8 @@ export class PocketWorldController {
     this.cursorRing.visible = false;
     this.cursorRing.scale.setScalar(1.0);
     (this.cursorRing.material as THREE.MeshBasicMaterial).color.set('#fff8d6');
+    // Pick up from wherever the tour left the planet, then ease back to the preset
+    this.globe.syncFromQuaternion(this.planetRoot.quaternion);
     this.applyCameraPreset(this.activeView, false);
     this.onStateChange((prev) => ({
       ...prev,
@@ -2528,7 +2655,8 @@ export class PocketWorldController {
         this.isPinching = true;
         this.isDraggingSpin = false;
         this.isPointerDown = false;
-        this.angularVelocity.set(0, 0);
+        if (this.globe.isDragging) this.globe.endDrag(performance.now());
+        this.globe.stopGlide();
         this.cursorRing.visible = false;
         this.lastPinchDist = getActivePinchDistance();
         return;
@@ -2540,6 +2668,10 @@ export class PocketWorldController {
       this.isDraggingSpin = false;
       this.pointerDownPos.set(e.clientX, e.clientY);
       this.lastPointerPos.set(e.clientX, e.clientY);
+      // Grabbing a gliding or transitioning globe catches it in place
+      this.pointerDownStoppedMotion = !this.globe.isSettled;
+      this.globe.beginDrag(performance.now());
+      this.grabbedLocalDir = null;
     };
 
     const onPointerMove = (e: PointerEvent) => {
@@ -2558,12 +2690,18 @@ export class PocketWorldController {
         this.cursorRing.visible = false;
         const currentPinchDist = getActivePinchDistance();
         if (this.lastPinchDist > 4 && currentPinchDist > 4) {
-          this.targetZoomDist = computeNextPinchZoomDistance(
-            this.targetZoomDist,
-            this.lastPinchDist,
-            currentPinchDist,
+          const pts = Array.from(this.activePointers.values());
+          const midX = (pts[0].x + pts[1].x) / 2;
+          const midY = (pts[0].y + pts[1].y) / 2;
+          this.zoomTowardScreenPoint(
+            computeNextPinchZoomDistance(
+              this.targetZoomDist,
+              this.lastPinchDist,
+              currentPinchDist,
+            ),
+            midX,
+            midY,
           );
-          this.syncCameraTargetsFromZoom(false);
         }
         this.lastPinchDist = currentPinchDist;
         return;
@@ -2609,16 +2747,35 @@ export class PocketWorldController {
       }
 
       if (this.isDraggingSpin) {
-        // Spin the planet with gentle inertia (slightly finer control when zoomed in close)
-        const zoomSensitivityScale = THREE.MathUtils.clamp(
-          this.targetZoomDist / 3.4,
-          0.42,
-          1.0,
+        // Keep the grabbed spot under the pointer, like holding a real globe
+        const now = performance.now();
+        const worldHit = sphereHitWorld(
+          this.camera,
+          this.screenToNdc(e.clientX, e.clientY),
+          this.surfaceRadius,
+          this.probeRaycaster,
         );
-        const spinStep = 0.0055 * zoomSensitivityScale;
-        this.angularVelocity.x = dx * spinStep;
-        this.angularVelocity.y = dy * spinStep;
-        this.applyPlanetSpin(this.angularVelocity.x, this.angularVelocity.y);
+        if (worldHit && this.grabbedLocalDir) {
+          const goal = solveFacingOrientation(
+            this.grabbedLocalDir,
+            worldHit,
+            this.globe.targetYaw,
+            this.globe.targetPitch,
+          );
+          this.globe.dragTo(goal.yaw, goal.pitch, now);
+        } else {
+          // Off the globe or at its rim: rotate by distance moved instead
+          const step = this.radiansPerScreenPixel();
+          this.globe.dragBy(dx * step, dy * step, now);
+        }
+        // (Re)grab whatever is under the pointer now, in the orientation it is heading to
+        this.grabbedLocalDir = worldHit
+          ? worldHit
+              .normalize()
+              .applyQuaternion(
+                globeQuaternion(this.globe.targetYaw, this.globe.targetPitch).invert(),
+              )
+          : null;
       }
 
       this.lastPointerPos.set(e.clientX, e.clientY);
@@ -2642,30 +2799,48 @@ export class PocketWorldController {
 
       if (!this.isPointerDown) return;
       this.isPointerDown = false;
+      this.globe.endDrag(performance.now());
 
       if (
         !this.isDraggingSpin &&
+        !this.pointerDownStoppedMotion &&
         performance.now() >= this.pinchCooldownUntil &&
         (e.pointerType !== 'mouse' || e.button === 0)
       ) {
         const hitDir = getTerrainHit(e);
         if (hitDir) {
-          this.handleSurfaceAction(hitDir);
+          if (this.activeTool) {
+            this.handleSurfaceAction(hitDir);
+          } else {
+            // With nothing armed, a double-tap focuses the camera on that spot
+            const now = performance.now();
+            const isDoubleTap =
+              now - this.lastTapTime < 320 &&
+              this.lastTapPos.distanceTo(new THREE.Vector2(e.clientX, e.clientY)) < 24;
+            if (isDoubleTap) {
+              this.lastTapTime = 0;
+              this.focusOnSurfaceDir(hitDir);
+            } else {
+              this.lastTapTime = now;
+              this.lastTapPos.set(e.clientX, e.clientY);
+            }
+          }
         }
       }
       this.isDraggingSpin = false;
+      this.pointerDownStoppedMotion = false;
+      this.grabbedLocalDir = null;
     };
 
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       if (this.tourActive) return;
       this.introSpinActive = false;
-      this.targetZoomDist = computeNextWheelZoomDistance(
-        this.targetZoomDist,
-        e.deltaY,
-        e.deltaMode,
+      this.zoomTowardScreenPoint(
+        computeNextWheelZoomDistance(this.targetZoomDist, e.deltaY, e.deltaMode),
+        e.clientX,
+        e.clientY,
       );
-      this.syncCameraTargetsFromZoom(false);
     };
 
     const onResize = () => {
@@ -2683,20 +2858,37 @@ export class PocketWorldController {
     resizeObserver.observe(this.container);
 
     const onKeyDown = (e: KeyboardEvent) => {
+      // Don't steer the camera while typing (e.g. renaming the world)
+      const target = e.target as HTMLElement | null;
+      if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) {
+        return;
+      }
       if (e.key === 'Escape' && this.tourActive) {
         this.stopTour();
       } else if (e.key === '=' || e.key === '+') {
         this.zoomByFactor(0.88);
       } else if (e.key === '-' || e.key === '_') {
         this.zoomByFactor(1.14);
+      } else if (!this.tourActive && e.key.startsWith('Arrow')) {
+        e.preventDefault();
+        this.introSpinActive = false;
+        const push = 1.4;
+        if (e.key === 'ArrowLeft') this.globe.nudge(-push, 0);
+        if (e.key === 'ArrowRight') this.globe.nudge(push, 0);
+        if (e.key === 'ArrowUp') this.globe.nudge(0, -push);
+        if (e.key === 'ArrowDown') this.globe.nudge(0, push);
       }
     };
+
+    // Right-drag spins the globe, so keep the browser menu out of the way
+    const onContextMenu = (e: Event) => e.preventDefault();
 
     dom.addEventListener('pointerdown', onPointerDown);
     window.addEventListener('pointermove', onPointerMove);
     window.addEventListener('pointerup', onPointerUpOrCancel);
     window.addEventListener('pointercancel', onPointerUpOrCancel);
     dom.addEventListener('wheel', onWheel, { passive: false });
+    dom.addEventListener('contextmenu', onContextMenu);
     window.addEventListener('resize', onResize);
     window.addEventListener('keydown', onKeyDown);
 
@@ -2708,21 +2900,10 @@ export class PocketWorldController {
       window.removeEventListener('pointerup', onPointerUpOrCancel);
       window.removeEventListener('pointercancel', onPointerUpOrCancel);
       dom.removeEventListener('wheel', onWheel);
+      dom.removeEventListener('contextmenu', onContextMenu);
       window.removeEventListener('resize', onResize);
       window.removeEventListener('keydown', onKeyDown);
     };
-  }
-
-  private applyPlanetSpin(deltaYaw: number, deltaPitch: number) {
-    const qYaw = new THREE.Quaternion().setFromAxisAngle(
-      new THREE.Vector3(0, 1, 0),
-      deltaYaw,
-    );
-    const qPitch = new THREE.Quaternion().setFromAxisAngle(
-      new THREE.Vector3(1, 0, 0),
-      deltaPitch,
-    );
-    this.planetRoot.quaternion.premultiply(qYaw).premultiply(qPitch);
   }
 
   private animate = () => {
@@ -2755,13 +2936,11 @@ export class PocketWorldController {
         this.introSpinElapsed += dt;
         if (this.introSpinElapsed < 3.0) {
           const progress = this.introSpinElapsed / 3.0;
-          const angle = progress * Math.PI * 2;
-          this.planetRoot.quaternion.setFromAxisAngle(UP_VEC, angle);
+          this.globe.setImmediate(progress * Math.PI * 2, 0);
         } else {
           // Complete 360° turn, pause rotation, and zoom out slightly for cosmic framing
           this.introSpinActive = false;
-          this.planetRoot.quaternion.identity();
-          this.angularVelocity.set(0, 0);
+          this.globe.setImmediate(0, 0);
 
           this.targetZoomDist = Math.min(
             MAX_ZOOM_DIST,
@@ -2770,17 +2949,19 @@ export class PocketWorldController {
           this.syncCameraTargetsFromZoom(false);
         }
       }
-    } else if (!this.isPointerDown && !this.tourActive) {
-      // Planet rotational inertia when not actively dragging
-      if (this.angularVelocity.lengthSq() > 1e-7) {
-        this.applyPlanetSpin(this.angularVelocity.x, this.angularVelocity.y);
-        this.angularVelocity.multiplyScalar(0.94); // Gentle inertia damping
-      }
     }
 
-    // 3. Smooth Camera Interpolation
-    this.camCurrentPos.lerp(this.camTargetPos, 1.0 - Math.exp(-dt * 4.5));
-    this.camCurrentLook.lerp(this.camTargetLook, 1.0 - Math.exp(-dt * 4.5));
+    // The scripted tour poses the planet itself; otherwise the globe controller owns it
+    if (!this.tourActive) {
+      this.globe.update(dt);
+      this.globe.writeQuaternion(this.planetRoot.quaternion);
+    }
+
+    // 3. Smooth Camera Interpolation (same easing rate as globe transitions, so
+    // zoom-toward-cursor and preset moves stay in step)
+    const camEase = 1.0 - Math.exp(-dt * (this.tourActive ? 4.5 : 5.5));
+    this.camCurrentPos.lerp(this.camTargetPos, camEase);
+    this.camCurrentLook.lerp(this.camTargetLook, camEase);
     this.camera.position.copy(this.camCurrentPos);
     this.camera.lookAt(this.camCurrentLook);
 
