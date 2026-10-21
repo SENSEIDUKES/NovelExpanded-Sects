@@ -150,6 +150,74 @@ export interface ShootingStarEntity {
 // SECT HOME BASE: every Sect world starts with this pagoda
 // ---------------------------------------------------------------------------
 
+/**
+ * The Sect terrace: a raised, paved stone platform that covers the locked Sect grounds.
+ * Built as a curved cap that sits flush on the leveled ground (radius levelRadius),
+ * centered on +Y, with a darker rim and a stone wall dropping to the land around it.
+ */
+export function createSectTerraceMesh(levelRadius: number, angularRadius: number): THREE.Group {
+  const group = new THREE.Group();
+  const sides = 12;
+
+  const pavingMat = new THREE.MeshStandardMaterial({
+    color: '#a39d92',
+    roughness: 0.9,
+    flatShading: true,
+  });
+  const rimMat = new THREE.MeshStandardMaterial({
+    color: '#86807a',
+    roughness: 0.92,
+    flatShading: true,
+  });
+  const wallMat = new THREE.MeshStandardMaterial({
+    color: '#6f6a64',
+    roughness: 0.94,
+    flatShading: true,
+  });
+
+  // The paving surface is exactly the level everything inside the grounds stands on
+  const topRadius = levelRadius;
+  const paving = new THREE.Mesh(
+    new THREE.SphereGeometry(topRadius, sides, 3, 0, Math.PI * 2, 0, angularRadius * 0.9),
+    pavingMat,
+  );
+  paving.receiveShadow = true;
+  group.add(paving);
+
+  const rim = new THREE.Mesh(
+    new THREE.SphereGeometry(
+      topRadius + 0.0006,
+      sides,
+      1,
+      0,
+      Math.PI * 2,
+      angularRadius * 0.9,
+      angularRadius * 0.1,
+    ),
+    rimMat,
+  );
+  rim.receiveShadow = true;
+  group.add(rim);
+
+  // Retaining wall from the terrace edge down into the surrounding land
+  const wallDrop = 0.03;
+  const topR = (topRadius + 0.0006) * Math.sin(angularRadius);
+  const topY = (topRadius + 0.0006) * Math.cos(angularRadius);
+  const bottomAngle = angularRadius * 1.04;
+  const bottomR = (levelRadius - wallDrop) * Math.sin(bottomAngle);
+  const bottomY = (levelRadius - wallDrop) * Math.cos(bottomAngle);
+  const wall = new THREE.Mesh(
+    new THREE.CylinderGeometry(topR, bottomR, topY - bottomY, sides, 1, true),
+    wallMat,
+  );
+  wall.position.y = (topY + bottomY) / 2;
+  wall.castShadow = true;
+  wall.receiveShadow = true;
+  group.add(wall);
+
+  return group;
+}
+
 /** Four-sided eave with flared, upturned corners, built around the origin. */
 function createPagodaEave(
   width: number,
