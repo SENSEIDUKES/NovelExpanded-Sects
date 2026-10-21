@@ -4055,12 +4055,13 @@ export function createVillagerMesh(colorIdx: number): {
       new THREE.CylinderGeometry(0.0003, 0.0003, 0.0088, 5),
       goldMat,
     );
-    hairpin.rotation.z = 1.25;
+    // Tilted so its upper end points to the disciple's left; the jade bead caps that end
+    hairpin.rotation.z = -1.25;
     hairpin.position.set(0, 0.0044, -0.0046);
     headGroup.add(hairpin);
 
     const bead = new THREE.Mesh(new THREE.SphereGeometry(0.0007, 6, 6), jadeMat);
-    bead.position.set(0.0041, 0.0058, -0.0046);
+    bead.position.set(0.0042, 0.0058, -0.0046);
     headGroup.add(bead);
   } else if (hairStyle === 2) {
     // Long hair tied back with a ribbon, hanging down the back

@@ -214,7 +214,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     accentBg: 'bg-[#fde2c8]',
     accentBorder: 'border-[#eba972]',
     accentText: 'text-[#70360f]',
-    description: 'Light a crackling stone campfire where villagers gather at night',
+    description: 'Light a crackling stone campfire where disciples gather at night',
   },
   {
     id: 'beehive',
