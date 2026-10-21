@@ -1,3 +1,5 @@
+import type { WorldTypeId } from '../three/worldTypes';
+
 export type ToolId =
   // Original Tools
   | 'tree'
@@ -51,6 +53,8 @@ export interface WorldState {
   /** null when no tool is armed */
   activeTool: ToolId | null;
   activeView: CameraViewId;
+  /** Active world type (planet style) */
+  worldType: WorldTypeId;
   timeMode: TimeMode;
   /** 0..1 where 0.25 = warm noon/afternoon, 0.52 = blue twilight, 0.78 = deep night */
   timeOfDay: number;

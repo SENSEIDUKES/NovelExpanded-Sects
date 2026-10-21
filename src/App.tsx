@@ -19,6 +19,7 @@ import {
   WorldState,
 } from './types/world';
 import { DockCategory, ToolDock } from './components/ToolDock';
+import { DEFAULT_WORLD_TYPE, WorldTypeId } from './three/worldTypes';
 
 export default function App() {
   const mountRef = useRef<HTMLDivElement | null>(null);
@@ -32,6 +33,7 @@ export default function App() {
     dayCount: 1,
     activeTool: null,
     activeView: 'orb',
+    worldType: DEFAULT_WORLD_TYPE,
     timeMode: 'auto',
     timeOfDay: 0.24,
     tourActive: false,
@@ -102,6 +104,10 @@ export default function App() {
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [filtersOpen, openCategory]);
+
+  const handleSelectWorldType = (world: WorldTypeId) => {
+    controllerRef.current?.setWorldType(world);
+  };
 
   // Tapping the armed tool again disarms it
   const handleSelectTool = (tool: ToolId) => {
@@ -184,6 +190,8 @@ export default function App() {
             orientation="vertical"
             activeTool={worldState.activeTool}
             onSelectTool={handleSelectTool}
+            worldType={worldState.worldType}
+            onSelectWorldType={handleSelectWorldType}
             openCategory={openCategory}
             onOpenCategory={setOpenCategory}
           />
@@ -443,6 +451,8 @@ export default function App() {
             orientation="horizontal"
             activeTool={worldState.activeTool}
             onSelectTool={handleSelectTool}
+            worldType={worldState.worldType}
+            onSelectWorldType={handleSelectWorldType}
             openCategory={openCategory}
             onOpenCategory={setOpenCategory}
           />

@@ -1,4 +1,10 @@
 import * as THREE from 'three';
+import {
+  DEFAULT_WORLD_TYPE,
+  getWorldType,
+  ResolvedPalette,
+  resolvePalette,
+} from './worldTypes';
 
 export interface UniqueVertex {
   baseDir: THREE.Vector3;
@@ -43,6 +49,8 @@ export interface PlanetTerrainHandles {
   ) => boolean;
   applyRainAtDirection: (dir: THREE.Vector3, dt: number) => void;
   applySnowAtDirection: (dir: THREE.Vector3, dt: number) => void;
+  /** Recolor land and water for a world type (rain and snow still layer on top) */
+  applyPalette: (palette: ResolvedPalette) => void;
   update: (elapsedTime: number, dt: number, nightFactor: number) => void;
 }
 
@@ -197,16 +205,20 @@ export function createPlanetTerrain(): PlanetTerrainHandles {
   );
   nonIndexedGeo.setAttribute('color', colorAttr);
 
-  const colDeepSand = new THREE.Color('#a99d80');
-  const colBeachSand = new THREE.Color('#ddd3b6');
-  const colWarmSand = new THREE.Color('#cfc29f');
-  const colGrassLight = new THREE.Color('#93b86f');
-  const colGrassMid = new THREE.Color('#6a9a5a');
-  const colGrassDeep = new THREE.Color('#47744b');
-  const colRock = new THREE.Color('#878d99');
-  const colRockDark = new THREE.Color('#6f7582');
-  const colSnow = new THREE.Color('#f7fbff');
-  const colSnowShade = new THREE.Color('#e3eef9');
+  // Land colors come from the active world type (Jade Valley until one is chosen)
+  const initialPalette = resolvePalette(getWorldType(DEFAULT_WORLD_TYPE).palette);
+  const {
+    deepSand: colDeepSand,
+    beachSand: colBeachSand,
+    warmSand: colWarmSand,
+    grassLight: colGrassLight,
+    grassMid: colGrassMid,
+    grassDeep: colGrassDeep,
+    rock: colRock,
+    rockDark: colRockDark,
+    snow: colSnow,
+    snowShade: colSnowShade,
+  } = initialPalette.ground;
 
   const tempColor = new THREE.Color();
   const p0 = new THREE.Vector3();
@@ -343,9 +355,11 @@ export function createPlanetTerrain(): PlanetTerrainHandles {
     return bestRadius;
   };
 
-  const colShallowShore = new THREE.Color('#8fdcc8');
-  const colMidTurquoise = new THREE.Color('#3c9f9c');
-  const colDeepSea = new THREE.Color('#1b5868');
+  const {
+    shallow: colShallowShore,
+    mid: colMidTurquoise,
+    deep: colDeepSea,
+  } = initialPalette.water;
   const wColor = new THREE.Color();
 
   const updateWaterColors = () => {
@@ -379,12 +393,35 @@ export function createPlanetTerrain(): PlanetTerrainHandles {
     vertexColors: true,
     flatShading: true,
     transparent: true,
-    opacity: 0.86,
+    opacity: initialPalette.water.opacity,
     roughness: 0.18,
     metalness: 0.05,
     clearcoat: 0.6,
     clearcoatRoughness: 0.2,
+    emissive: initialPalette.water.glow.clone(),
+    emissiveIntensity: initialPalette.water.glowIntensity,
   });
+
+  const applyPalette = (palette: ResolvedPalette) => {
+    colDeepSand.copy(palette.ground.deepSand);
+    colBeachSand.copy(palette.ground.beachSand);
+    colWarmSand.copy(palette.ground.warmSand);
+    colGrassLight.copy(palette.ground.grassLight);
+    colGrassMid.copy(palette.ground.grassMid);
+    colGrassDeep.copy(palette.ground.grassDeep);
+    colRock.copy(palette.ground.rock);
+    colRockDark.copy(palette.ground.rockDark);
+    colSnow.copy(palette.ground.snow);
+    colSnowShade.copy(palette.ground.snowShade);
+    colShallowShore.copy(palette.water.shallow);
+    colMidTurquoise.copy(palette.water.mid);
+    colDeepSea.copy(palette.water.deep);
+    waterMaterial.opacity = palette.water.opacity;
+    waterMaterial.emissive.copy(palette.water.glow);
+    waterMaterial.emissiveIntensity = palette.water.glowIntensity;
+    updateTerrainColorsOnly();
+    updateWaterColors();
+  };
 
   const waterMesh = new THREE.Mesh(waterGeo, waterMaterial);
   waterMesh.receiveShadow = true;
@@ -588,6 +625,7 @@ export function createPlanetTerrain(): PlanetTerrainHandles {
     sculptAtDirection,
     applyRainAtDirection,
     applySnowAtDirection,
+    applyPalette,
     update,
   };
 }
