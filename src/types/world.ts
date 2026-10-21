@@ -39,7 +39,8 @@ export interface WorldState {
   population: number;
   happiness: number;
   dayCount: number;
-  activeTool: ToolId;
+  /** null when no tool is armed */
+  activeTool: ToolId | null;
   activeView: CameraViewId;
   timeMode: TimeMode;
   /** 0..1 where 0.25 = warm noon/afternoon, 0.52 = blue twilight, 0.78 = deep night */
@@ -119,12 +120,12 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     id: 'lantern',
-    label: 'Lantern Road',
+    label: 'Stone Lantern',
     category: 'village',
     accentBg: 'bg-[#fef0c9]',
     accentBorder: 'border-[#e5c777]',
     accentText: 'text-[#634b10]',
-    description: 'Place a wrought-iron streetlamp & cobblestone path that glows at dusk',
+    description: 'Place a stone shrine lantern that glows at dusk',
   },
   {
     id: 'balloon',
@@ -296,4 +297,21 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     accentText: 'text-[#692626]',
     description: 'Clear an object from the planet surface',
   },
+];
+
+/**
+ * Cozy-farm items from the original pocket-world prototype. Their meshes still exist,
+ * but they are kept out of the Sect toolbar because they set the wrong tone.
+ */
+export const FARM_PROTOTYPE_TOOLS: ToolId[] = [
+  'house',
+  'windmill',
+  'lighthouse',
+  'watchtower',
+  'balloon',
+  'sailboat',
+  'dock',
+  'duck',
+  'beehive',
+  'sheep',
 ];

@@ -43,10 +43,11 @@ const PRESET_CONFIGS: Record<CameraViewId, CameraPresetConfig> = {
     defaultDistance: 2.95,
     baseLookAt: new THREE.Vector3(0.0, 0.0, 0.0),
   },
+  // 3/4 view of the home-base pagoda (~35° above its local horizon)
   village: {
-    anchorDir: new THREE.Vector3(-0.24, 0.34, 1.48).normalize(),
-    defaultDistance: 1.62,
-    baseLookAt: new THREE.Vector3(-0.14, 0.16, 0.72),
+    anchorDir: new THREE.Vector3(-0.164, -0.023, 0.986).normalize(),
+    defaultDistance: 1.4,
+    baseLookAt: new THREE.Vector3(-0.156, 0.214, 0.935),
   },
   surface: {
     anchorDir: new THREE.Vector3(0.54, 0.2, 1.46).normalize(),
