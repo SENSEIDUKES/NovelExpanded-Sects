@@ -28,7 +28,16 @@ export type ToolId =
   | 'snowcloud'
   | 'shootingstar';
 
-export type ToolCategory = 'all' | 'village' | 'water' | 'nature' | 'weather' | 'sculpt';
+/** Parent categories the toolbar is organized around; 'utility' holds Remove */
+export type ToolCategory =
+  | 'world'
+  | 'terrain'
+  | 'structures'
+  | 'nature'
+  | 'decorations'
+  | 'creatures'
+  | 'sky'
+  | 'utility';
 
 export type CameraViewId = 'orb' | 'surface' | 'orbit' | 'village';
 
@@ -64,19 +73,68 @@ export interface WorldState {
 export interface ToolDefinition {
   id: ToolId;
   label: string;
-  category: Exclude<ToolCategory, 'all'>;
+  category: ToolCategory;
   accentBg: string;
   accentBorder: string;
   accentText: string;
   description: string;
 }
 
+/** The seven parent categories, in toolbar order */
+export const TOOL_CATEGORIES: { id: Exclude<ToolCategory, 'utility'>; label: string }[] = [
+  { id: 'world', label: 'World' },
+  { id: 'terrain', label: 'Terrain' },
+  { id: 'structures', label: 'Structures' },
+  { id: 'nature', label: 'Nature' },
+  { id: 'decorations', label: 'Decorations' },
+  { id: 'creatures', label: 'Creatures' },
+  { id: 'sky', label: 'Sky' },
+];
+
 export const TOOL_DEFINITIONS: ToolDefinition[] = [
-  // Village & Landmarks
+  // Terrain
+  {
+    id: 'mountain',
+    label: 'Mountains',
+    category: 'terrain',
+    accentBg: 'bg-[#e3e6ee]',
+    accentBorder: 'border-[#b2bacf]',
+    accentText: 'text-[#363e52]',
+    description: 'Raise a snowy faceted peak',
+  },
+  {
+    id: 'lake',
+    label: 'Lakes',
+    category: 'terrain',
+    accentBg: 'bg-[#d4f1f4]',
+    accentBorder: 'border-[#8fd3db]',
+    accentText: 'text-[#1c5961]',
+    description: 'Carve a shallow-to-deep turquoise basin',
+  },
+  {
+    id: 'raise',
+    label: 'Raise Land',
+    category: 'terrain',
+    accentBg: 'bg-[#e6eed6]',
+    accentBorder: 'border-[#b5c993]',
+    accentText: 'text-[#3b4f1d]',
+    description: 'Elevate spherical terrain facets',
+  },
+  {
+    id: 'lower',
+    label: 'Lower Land',
+    category: 'terrain',
+    accentBg: 'bg-[#d8edf2]',
+    accentBorder: 'border-[#96c9d6]',
+    accentText: 'text-[#20515e]',
+    description: 'Lower terrain facets to admit turquoise water',
+  },
+
+  // Structures
   {
     id: 'house',
     label: 'Houses',
-    category: 'village',
+    category: 'structures',
     accentBg: 'bg-[#fce4d6]',
     accentBorder: 'border-[#ebb69b]',
     accentText: 'text-[#6e3820]',
@@ -85,7 +143,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     id: 'windmill',
     label: 'Windmills',
-    category: 'village',
+    category: 'structures',
     accentBg: 'bg-[#fdf2d0]',
     accentBorder: 'border-[#e5cc87]',
     accentText: 'text-[#665014]',
@@ -94,7 +152,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     id: 'lighthouse',
     label: 'Lighthouses',
-    category: 'village',
+    category: 'structures',
     accentBg: 'bg-[#fadadd]',
     accentBorder: 'border-[#e59fa6]',
     accentText: 'text-[#70232b]',
@@ -103,70 +161,23 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     id: 'watchtower',
     label: 'Watchtower',
-    category: 'village',
+    category: 'structures',
     accentBg: 'bg-[#e6e2f5]',
     accentBorder: 'border-[#b8b0d9]',
     accentText: 'text-[#3c345c]',
     description: 'Build a fairytale stone keep with a waving pennant flag',
   },
   {
-    id: 'campfire',
-    label: 'Campfire',
-    category: 'village',
-    accentBg: 'bg-[#fde2c8]',
-    accentBorder: 'border-[#eba972]',
-    accentText: 'text-[#70360f]',
-    description: 'Light a crackling stone campfire where villagers gather at night',
-  },
-  {
-    id: 'lantern',
-    label: 'Stone Lantern',
-    category: 'village',
-    accentBg: 'bg-[#fef0c9]',
-    accentBorder: 'border-[#e5c777]',
-    accentText: 'text-[#634b10]',
-    description: 'Place a stone shrine lantern that glows at dusk',
-  },
-  {
-    id: 'balloon',
-    label: 'Hot Air Balloon',
-    category: 'village',
-    accentBg: 'bg-[#f9d9e6]',
-    accentBorder: 'border-[#e39db9]',
-    accentText: 'text-[#6b2543]',
-    description: 'Launch a striped pastel hot air balloon with a glowing burner',
-  },
-
-  // Water & Coastal Life
-  {
-    id: 'sailboat',
-    label: 'Sailboats',
-    category: 'water',
-    accentBg: 'bg-[#d6eff7]',
-    accentBorder: 'border-[#8ec9de]',
-    accentText: 'text-[#1c5166]',
-    description: 'Launch a wooden sailboat with pastel sails & night lantern',
-  },
-  {
     id: 'dock',
     label: 'Docks & Bridges',
-    category: 'water',
+    category: 'structures',
     accentBg: 'bg-[#efe4d4]',
     accentBorder: 'border-[#cbb393]',
     accentText: 'text-[#543d22]',
     description: 'Build a timber pier on shores or an arched bridge across channels',
   },
-  {
-    id: 'duck',
-    label: 'Swans & Ducks',
-    category: 'water',
-    accentBg: 'bg-[#e2f5ef]',
-    accentBorder: 'border-[#9ad1c0]',
-    accentText: 'text-[#1f5747]',
-    description: 'Add paddling white swans & ducks that leave water ripples',
-  },
 
-  // Nature & Life
+  // Nature
   {
     id: 'tree',
     label: 'Trees',
@@ -185,19 +196,41 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     accentText: 'text-[#5b2a61]',
     description: 'Scatter pastel meadow blossoms',
   },
+
+  // Decorations
+  {
+    id: 'lantern',
+    label: 'Stone Lantern',
+    category: 'decorations',
+    accentBg: 'bg-[#fef0c9]',
+    accentBorder: 'border-[#e5c777]',
+    accentText: 'text-[#634b10]',
+    description: 'Place a stone shrine lantern that glows at dusk',
+  },
+  {
+    id: 'campfire',
+    label: 'Campfire',
+    category: 'decorations',
+    accentBg: 'bg-[#fde2c8]',
+    accentBorder: 'border-[#eba972]',
+    accentText: 'text-[#70360f]',
+    description: 'Light a crackling stone campfire where villagers gather at night',
+  },
   {
     id: 'beehive',
     label: 'Beehives',
-    category: 'nature',
+    category: 'decorations',
     accentBg: 'bg-[#fcf0c2]',
     accentBorder: 'border-[#e3c76b]',
     accentText: 'text-[#5e480d]',
     description: 'Place a painted apiary box with fluttering butterflies & bees',
   },
+
+  // Creatures
   {
     id: 'villager',
     label: 'Disciples',
-    category: 'nature',
+    category: 'creatures',
     accentBg: 'bg-[#fde8c8]',
     accentBorder: 'border-[#e6be83]',
     accentText: 'text-[#664414]',
@@ -206,18 +239,36 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     id: 'sheep',
     label: 'Sheep',
-    category: 'nature',
+    category: 'creatures',
     accentBg: 'bg-[#f2efe9]',
     accentBorder: 'border-[#ccc5b8]',
     accentText: 'text-[#474137]',
     description: 'Add a fluffy white grazing sheep',
   },
+  {
+    id: 'duck',
+    label: 'Swans & Ducks',
+    category: 'creatures',
+    accentBg: 'bg-[#e2f5ef]',
+    accentBorder: 'border-[#9ad1c0]',
+    accentText: 'text-[#1f5747]',
+    description: 'Add paddling white swans & ducks that leave water ripples',
+  },
+  {
+    id: 'sailboat',
+    label: 'Sailboats',
+    category: 'creatures',
+    accentBg: 'bg-[#d6eff7]',
+    accentBorder: 'border-[#8ec9de]',
+    accentText: 'text-[#1c5166]',
+    description: 'Launch a wooden sailboat with pastel sails & night lantern',
+  },
 
-  // Weather & Elemental Powers
+  // Sky
   {
     id: 'cloud',
     label: 'Rain Cloud',
-    category: 'weather',
+    category: 'sky',
     accentBg: 'bg-[#e1ecf7]',
     accentBorder: 'border-[#a4c2e3]',
     accentText: 'text-[#264669]',
@@ -226,7 +277,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     id: 'snowcloud',
     label: 'Snow Cloud',
-    category: 'weather',
+    category: 'sky',
     accentBg: 'bg-[#e4f2fc]',
     accentBorder: 'border-[#9ec8e8]',
     accentText: 'text-[#1e4b6e]',
@@ -235,7 +286,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     id: 'rainbow',
     label: 'Rainbow',
-    category: 'weather',
+    category: 'sky',
     accentBg: 'bg-[#fce3f0]',
     accentBorder: 'border-[#e3a1c4]',
     accentText: 'text-[#662247]',
@@ -244,54 +295,27 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     id: 'shootingstar',
     label: 'Shooting Star',
-    category: 'weather',
+    category: 'sky',
     accentBg: 'bg-[#e5dff7]',
     accentBorder: 'border-[#b3a3e3]',
     accentText: 'text-[#392769]',
     description: 'Send a sparkling shooting star across the orb sky',
   },
+  {
+    id: 'balloon',
+    label: 'Hot Air Balloon',
+    category: 'sky',
+    accentBg: 'bg-[#f9d9e6]',
+    accentBorder: 'border-[#e39db9]',
+    accentText: 'text-[#6b2543]',
+    description: 'Launch a striped pastel hot air balloon with a glowing burner',
+  },
 
-  // Sculpt & Clear
-  {
-    id: 'mountain',
-    label: 'Mountains',
-    category: 'sculpt',
-    accentBg: 'bg-[#e3e6ee]',
-    accentBorder: 'border-[#b2bacf]',
-    accentText: 'text-[#363e52]',
-    description: 'Raise a snowy faceted peak',
-  },
-  {
-    id: 'lake',
-    label: 'Lakes',
-    category: 'sculpt',
-    accentBg: 'bg-[#d4f1f4]',
-    accentBorder: 'border-[#8fd3db]',
-    accentText: 'text-[#1c5961]',
-    description: 'Carve a shallow-to-deep turquoise basin',
-  },
-  {
-    id: 'raise',
-    label: 'Raise Land',
-    category: 'sculpt',
-    accentBg: 'bg-[#e6eed6]',
-    accentBorder: 'border-[#b5c993]',
-    accentText: 'text-[#3b4f1d]',
-    description: 'Elevate spherical terrain facets',
-  },
-  {
-    id: 'lower',
-    label: 'Lower Land',
-    category: 'sculpt',
-    accentBg: 'bg-[#d8edf2]',
-    accentBorder: 'border-[#96c9d6]',
-    accentText: 'text-[#20515e]',
-    description: 'Lower terrain facets to admit turquoise water',
-  },
+  // Utility
   {
     id: 'remove',
     label: 'Remove',
-    category: 'sculpt',
+    category: 'utility',
     accentBg: 'bg-[#f7dede]',
     accentBorder: 'border-[#dfa4a4]',
     accentText: 'text-[#692626]',
