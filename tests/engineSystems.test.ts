@@ -15,6 +15,7 @@ import { populateInitialWorld } from '../src/three/engine/initialWorld';
 import { PlacementSystem } from '../src/three/engine/PlacementSystem';
 import { SkyEventsSystem } from '../src/three/engine/SkyEventsSystem';
 import { getBridgesAndDocks, getObjectCollisionRadius } from '../src/three/engine/spatial';
+import { DISCIPLE_RADIUS, SurfaceNavigation } from '../src/three/engine/SurfaceNavigation';
 import { WeatherSystem } from '../src/three/engine/WeatherSystem';
 import { computeWorldStats } from '../src/three/engine/worldStats';
 import type { WorldState } from '../src/types/world';
@@ -76,24 +77,22 @@ function buildHeadlessWorld() {
 {
   const { ctx, disciples, effects } = buildHeadlessWorld();
   const pagoda = ctx.entities.placedObjects.find((o) => o.type === 'pagoda')!;
-  // Disciples nudging apart from each other can press them a hair (~0.0025) into a
-  // footprint; anything deeper means they're walking through the building
-  const keepOut = getObjectCollisionRadius('pagoda') + 0.012 - 0.005;
+  const keepOut = getObjectCollisionRadius('pagoda') + DISCIPLE_RADIUS - 1e-8;
+  const navigation = new SurfaceNavigation(ctx);
   const dt = 1 / 30;
-  let moved = 0;
+  const furthest = ctx.entities.villagers.map(() => 0);
   const start = ctx.entities.villagers.map((v) => v.dir.clone());
   for (let frame = 0; frame < 1800; frame++) {
     disciples.update(dt, frame * dt, false, getBridgesAndDocks(ctx));
     effects.update(dt);
-    for (const v of ctx.entities.villagers) {
+    for (const [i, v] of ctx.entities.villagers.entries()) {
+      furthest[i] = Math.max(furthest[i], v.dir.distanceTo(start[i]));
+      assert.ok(navigation.isClear(v.dir, DISCIPLE_RADIUS), `frame ${frame}: a disciple intersected scenery or unsafe terrain`);
       assert.ok(v.dir.distanceTo(pagoda.dir) >= keepOut, `frame ${frame}: a disciple walked into the pagoda`);
       assert.ok(!ctx.terrain.getSurfacePointAndNormal(v.dir).isWater, `frame ${frame}: a disciple walked into water`);
     }
   }
-  ctx.entities.villagers.forEach((v, i) => {
-    moved = Math.max(moved, v.dir.distanceTo(start[i]));
-  });
-  assert.ok(moved > 0.02, 'disciples actually walk around');
+  furthest.forEach((distance, i) => assert.ok(distance > 0.02, `disciple ${i} stayed stuck`));
 }
 
 // 3. Placement: the Sect grounds are locked, items place once and disarm, brushes stay armed

@@ -7,16 +7,15 @@ import {
 import { UP_VEC, WorldContext } from './context';
 import type { DayNightSystem } from './DayNightSystem';
 import {
-  closestPointOnSphereSegment,
   getBuildingEntranceDir,
-  getFenceSegmentOnSphere,
   getObjectCollisionRadius,
-  getRainbowFootDirs,
   isPositionClearOfObstacles,
   orientObjectOnSurface,
 } from './spatial';
 
-const VILLAGER_RADIUS = 0.012;
+import { DISCIPLE_RADIUS, SHEEP_RADIUS, SurfaceNavigation, WalkingRoutes, type WalkingNeighbor } from './SurfaceNavigation';
+
+const VILLAGER_RADIUS = DISCIPLE_RADIUS;
 
 /**
  * Disciples: spawning, choosing where to walk (the pagoda grounds, buildings, campfires
@@ -24,6 +23,7 @@ const VILLAGER_RADIUS = 0.012;
  */
 export class DiscipleSystem {
   private villagerCounter = 0;
+  private routes = new WalkingRoutes();
 
   constructor(
     private ctx: WorldContext,
@@ -64,12 +64,12 @@ export class DiscipleSystem {
       bounceTime: withSparkles ? 0.0 : 10.0,
       yaw,
       stuckTimer: 0,
-      steerSign: vIdx % 2 === 0 ? 1 : -1,
     };
 
     // Immediately resolve any spawn overlap with buildings or fences
     this.resolveCollisions(entity, []);
     orientObjectOnSurface(terrain, entity.mesh, entity.dir, entity.yaw);
+    entity.mesh.position.copy(new SurfaceNavigation(this.ctx).standingPoint(entity.dir));
 
     if (withSparkles) {
       this.ctx.emitSparkles(entity.dir, '#ffd180');
@@ -166,11 +166,8 @@ export class DiscipleSystem {
           chosen.type === 'watchtower' ||
           chosen.type === 'dock'
         ) {
-          return getBuildingEntranceDir(
-            terrain,
-            chosen,
-            (Math.random() - 0.5) * 0.022,
-          );
+          const entrance = getBuildingEntranceDir(terrain, chosen, (Math.random() - 0.5) * 0.022);
+          if (isPositionClearOfObstacles(this.ctx, entrance, VILLAGER_RADIUS + 0.002)) return entrance;
         }
         const hubR = getObjectCollisionRadius(chosen.type);
         const hubSpot = this.sampleClearRingAroundHub(
@@ -218,7 +215,8 @@ export class DiscipleSystem {
 
       const lateral = (Math.random() - 0.5) * 0.022;
       // Target the front door threshold / porch outside the building, NEVER the building center!
-      return getBuildingEntranceDir(terrain, chosen, lateral);
+      const entrance = getBuildingEntranceDir(terrain, chosen, lateral);
+      if (isPositionClearOfObstacles(this.ctx, entrance, VILLAGER_RADIUS + 0.002)) return entrance;
     }
 
     const wanderSpot = this.sampleWanderSpotNearHome();
@@ -258,11 +256,18 @@ export class DiscipleSystem {
     gazingAtShootingStar: boolean,
     bridgesAndDocks: PlacedObjectEntity[],
   ) {
-    const { terrain, pasture } = this.ctx;
-    const placedObjects = this.ctx.entities.placedObjects;
-    const villagerRadius = VILLAGER_RADIUS;
+    const { terrain } = this.ctx;
+    const navigation = new SurfaceNavigation(this.ctx);
+    const neighbors = [
+      ...this.villagers.map(v => ({ id: v.id, dir: v.dir, radius: DISCIPLE_RADIUS })),
+      ...this.ctx.entities.sheep.map(s => ({ id: s.id, dir: s.dir, radius: SHEEP_RADIUS })),
+    ];
 
     for (const v of this.villagers) {
+      this.resolveCollisions(v, bridgesAndDocks, undefined, navigation, neighbors);
+      orientObjectOnSurface(terrain, v.mesh, v.dir, v.yaw);
+      v.mesh.position.copy(navigation.standingPoint(v.dir));
+
       if (gazingAtShootingStar) {
         // Stop, look up at the sky, and wave excitedly while watching the shooting star!
         v.bodyMesh.position.y = Math.abs(Math.sin(elapsed * 10.0)) * 0.0025;
@@ -300,165 +305,17 @@ export class DiscipleSystem {
       }
 
       const prevDir = v.dir.clone();
-      const surfBefore = terrain.getSurfacePointAndNormal(v.dir);
-
-      // Desired tangent direction toward target on local surface plane
-      const desiredTangent = v.targetDir
-        .clone()
-        .sub(v.dir)
-        .projectOnPlane(surfBefore.normal)
-        .normalize();
-
-      // Compute smooth look-ahead obstacle avoidance steering vector around buildings, trees & fences
-      const steerVec = desiredTangent.clone();
-      const signHint = v.steerSign || 1;
-
-      for (const obj of placedObjects) {
-        if (obj.type === 'fence') {
-          const { segA, segB, railAxis } = getFenceSegmentOnSphere(terrain, obj);
-          const closest = closestPointOnSphereSegment(v.dir, segA, segB);
-          const dFence = v.dir.distanceTo(closest);
-          const minClear = 0.015 + villagerRadius;
-          const avoidDist = minClear + 0.036;
-          if (dFence < avoidDist && dFence > 1e-6) {
-            const awayNormal = v.dir
-              .clone()
-              .sub(closest)
-              .projectOnPlane(surfBefore.normal)
-              .normalize();
-            const alongRail =
-              railAxis.dot(desiredTangent) >= 0
-                ? railAxis.clone()
-                : railAxis.clone().negate();
-            const weight = Math.pow(
-              1.0 - Math.max(0, dFence - minClear) / (avoidDist - minClear),
-              1.35,
-            );
-            steerVec.addScaledVector(alongRail, weight * 1.65);
-            steerVec.addScaledVector(awayNormal, weight * 1.25);
-          }
-          continue;
-        }
-
-        if (obj.type === 'rainbow') {
-          const [footA, footB] = getRainbowFootDirs(terrain, obj.dir, obj.yaw);
-          for (const footDir of [footA, footB]) {
-            const dFoot = v.dir.distanceTo(footDir);
-            const minClear = 0.026 + villagerRadius;
-            const avoidDist = minClear + 0.042;
-            if (dFoot < avoidDist && dFoot > 1e-6) {
-              const away = v.dir
-                .clone()
-                .sub(footDir)
-                .projectOnPlane(surfBefore.normal)
-                .normalize();
-              const weight = Math.pow(
-                1.0 - Math.max(0, dFoot - minClear) / (avoidDist - minClear),
-                1.35,
-              );
-              steerVec.addScaledVector(away, weight * 1.5);
-            }
-          }
-          continue;
-        }
-
-        const obsR = getObjectCollisionRadius(obj.type);
-        if (obsR <= 0) continue;
-
-        const dObs = v.dir.distanceTo(obj.dir);
-        const minClear = obsR + villagerRadius;
-        const avoidDist = minClear + 0.048;
-
-        if (dObs < avoidDist && dObs > 1e-6) {
-          const toObs = obj.dir
-            .clone()
-            .sub(v.dir)
-            .projectOnPlane(surfBefore.normal);
-          const toObsNorm = toObs.clone().normalize();
-          const approaching = toObsNorm.dot(desiredTangent);
-
-          // Steer around the building if it lies in our forward hemisphere or we are very close
-          if (approaching > -0.15 || dObs < minClear + 0.014) {
-            const tangentLeft = new THREE.Vector3()
-              .crossVectors(surfBefore.normal, toObsNorm)
-              .normalize();
-            const dotLeft = tangentLeft.dot(desiredTangent);
-            const chosenTangent =
-              Math.abs(dotLeft) > 0.08
-                ? dotLeft >= 0
-                  ? tangentLeft
-                  : tangentLeft.clone().negate()
-                : tangentLeft.clone().multiplyScalar(signHint);
-            const awayRadial = toObsNorm.clone().negate();
-
-            const weight = Math.pow(
-              1.0 - Math.max(0, dObs - minClear) / (avoidDist - minClear),
-              1.35,
-            );
-            steerVec.addScaledVector(chosenTangent, weight * 1.85);
-            steerVec.addScaledVector(awayRadial, weight * 1.15);
-          }
-        }
+      const steerVec = this.routes.direction(v, v.targetDir, navigation, VILLAGER_RADIUS, dt);
+      if (steerVec) {
+        navigation.move(v, steerVec, Math.min(v.speed * dt, distToTarget), VILLAGER_RADIUS, neighbors);
       }
-
-      // Also steer around the fenced sheep pasture corral
-      const dPasture = v.dir.distanceTo(pasture.center);
-      const pastureClear = pasture.radius + villagerRadius + 0.008;
-      const pastureAvoid = pastureClear + 0.044;
-      if (pasture.enabled && dPasture < pastureAvoid && dPasture > 1e-6) {
-        const toPasture = pasture.center
-          .clone()
-          .sub(v.dir)
-          .projectOnPlane(surfBefore.normal)
-          .normalize();
-        if (toPasture.dot(desiredTangent) > -0.1 || dPasture < pastureClear + 0.01) {
-          const tangentLeft = new THREE.Vector3()
-            .crossVectors(surfBefore.normal, toPasture)
-            .normalize();
-          const chosenTangent =
-            tangentLeft.dot(desiredTangent) >= 0
-              ? tangentLeft
-              : tangentLeft.clone().negate();
-          const weight = Math.pow(
-            1.0 - Math.max(0, dPasture - pastureClear) / (pastureAvoid - pastureClear),
-            1.35,
-          );
-          steerVec.addScaledVector(chosenTangent, weight * 1.85);
-          steerVec.addScaledVector(toPasture.clone().negate(), weight * 1.25);
-        }
-      }
-
-      // Personal-space steering around other villagers
-      for (const other of this.villagers) {
-        if (other === v) continue;
-        const dOther = v.dir.distanceTo(other.dir);
-        if (dOther < 0.028 && dOther > 1e-6) {
-          const away = v.dir
-            .clone()
-            .sub(other.dir)
-            .projectOnPlane(surfBefore.normal)
-            .normalize();
-          steerVec.addScaledVector(away, ((0.028 - dOther) / 0.028) * 0.9);
-        }
-      }
-
-      steerVec.projectOnPlane(surfBefore.normal).normalize();
-      if (steerVec.lengthSq() < 1e-6) {
-        steerVec.copy(desiredTangent);
-      }
-
-      // Advance along steered tangent vector
-      v.dir.addScaledVector(steerVec, v.speed * dt).normalize();
-
-      // Enforce hard non-penetration constraints against all buildings, fences, water & cliffs
-      this.resolveCollisions(v, bridgesAndDocks, prevDir);
 
       // Watchdog: if blocked from making progress for too long, choose a new clear target
       const actualStep = v.dir.distanceTo(prevDir);
       if (actualStep < v.speed * dt * 0.18) {
         v.stuckTimer = (v.stuckTimer || 0) + dt;
         if (v.stuckTimer > 1.1) {
-          v.steerSign = -(v.steerSign || 1);
+          this.routes.invalidate(v);
           v.headingToWell = !v.headingToWell;
           v.targetDir = this.pickNextTarget(v.headingToWell, v.dir);
           v.stuckTimer = 0;
@@ -468,13 +325,10 @@ export class DiscipleSystem {
       }
 
       const surf = terrain.getSurfacePointAndNormal(v.dir);
-      const bridgeObj = bridgesAndDocks.find(
-        (b) => b.dir.distanceTo(v.dir) < 0.056,
-      );
 
       v.walkPhase += dt * 13.5;
-      const stride = Math.sin(v.walkPhase);
-      const hop = Math.abs(stride) * 0.0032;
+      const stride = actualStep > 1e-6 ? Math.sin(v.walkPhase) : 0;
+      const hop = actualStep > 1e-6 ? Math.abs(stride) * 0.0032 : 0;
 
       // Swing articulated legs & arms in opposition
       v.leftLeg.rotation.x = stride * 0.58;
@@ -484,22 +338,7 @@ export class DiscipleSystem {
       v.headGroup.rotation.x = Math.abs(stride) * 0.08;
       v.headGroup.rotation.y = 0;
 
-      let basePt = surf.point;
-      if (bridgeObj) {
-        const dRatio = THREE.MathUtils.clamp(
-          v.dir.distanceTo(bridgeObj.dir) / 0.048,
-          0,
-          1,
-        );
-        const deckHeight =
-          bridgeObj.type === 'bridge'
-            ? 0.015 + (1.0 - dRatio * dRatio) * 0.017
-            : 0.019;
-        basePt = v.dir
-          .clone()
-          .multiplyScalar(Math.max(surf.radius, terrain.seaLevel + deckHeight));
-      }
-      v.mesh.position.copy(basePt).addScaledVector(surf.normal, hop);
+      v.mesh.position.copy(navigation.standingPoint(v.dir)).addScaledVector(surf.normal, hop);
 
       const actualMoveTangent = v.dir
         .clone()
@@ -508,7 +347,7 @@ export class DiscipleSystem {
       const faceTangent =
         actualMoveTangent.lengthSq() > 1e-7
           ? actualMoveTangent.normalize()
-          : steerVec;
+          : steerVec ?? new THREE.Vector3();
 
       if (faceTangent.lengthSq() > 1e-5) {
         const alignQuat = new THREE.Quaternion().setFromUnitVectors(
@@ -534,117 +373,16 @@ export class DiscipleSystem {
     v: VillagerEntity,
     bridgesAndDocks: PlacedObjectEntity[],
     fallbackDir?: THREE.Vector3,
+    navigation?: SurfaceNavigation,
+    neighbors?: WalkingNeighbor[],
   ) {
-    const { terrain, pasture } = this.ctx;
-    const villagerRadius = VILLAGER_RADIUS;
-
-    // 3-pass position-based non-penetration constraint solver
-    for (let pass = 0; pass < 3; pass++) {
-      // 1. Solid Buildings, Trees, Wells, Campfires, Beehives, Lanterns & Fences
-      for (const obj of this.ctx.entities.placedObjects) {
-        if (obj.type === 'fence') {
-          const { segA, segB } = getFenceSegmentOnSphere(terrain, obj);
-          const closest = closestPointOnSphereSegment(v.dir, segA, segB);
-          const minFenceDist = 0.015 + villagerRadius;
-          const dist = v.dir.distanceTo(closest);
-          if (dist < minFenceDist) {
-            const pushDir =
-              dist > 1e-6
-                ? v.dir.clone().sub(closest).normalize()
-                : v.dir.clone().sub(pasture.center).normalize();
-            v.dir
-              .copy(closest)
-              .addScaledVector(pushDir, minFenceDist + 0.001)
-              .normalize();
-          }
-          continue;
-        }
-
-        if (obj.type === 'rainbow') {
-          const [footA, footB] = getRainbowFootDirs(terrain, obj.dir, obj.yaw);
-          for (const footDir of [footA, footB]) {
-            const minFootDist = 0.028 + villagerRadius;
-            const dFoot = v.dir.distanceTo(footDir);
-            if (dFoot < minFootDist) {
-              const pushDir =
-                dFoot > 1e-6
-                  ? v.dir.clone().sub(footDir).normalize()
-                  : new THREE.Vector3(1, 0, 0);
-              v.dir
-                .copy(footDir)
-                .addScaledVector(pushDir, minFootDist + 0.001)
-                .normalize();
-            }
-          }
-          continue;
-        }
-
-        const obsR = getObjectCollisionRadius(obj.type);
-        if (obsR <= 0) continue;
-
-        const minDist = obsR + villagerRadius;
-        const dist = v.dir.distanceTo(obj.dir);
-        if (dist < minDist) {
-          const pushDir =
-            dist > 1e-6
-              ? v.dir.clone().sub(obj.dir).normalize()
-              : new THREE.Vector3(1, 0, 0);
-          v.dir
-            .copy(obj.dir)
-            .addScaledVector(pushDir, minDist + 0.001)
-            .normalize();
-        }
-      }
-
-      // 2. Keep villagers outside the fenced sheep pasture corral
-      const dPasture = v.dir.distanceTo(pasture.center);
-      const minPastureDist = pasture.radius + villagerRadius + 0.006;
-      if (pasture.enabled && dPasture < minPastureDist) {
-        const pushOut =
-          dPasture > 1e-6
-            ? v.dir.clone().sub(pasture.center).normalize()
-            : new THREE.Vector3(0, 1, 0);
-        v.dir
-          .copy(pasture.center)
-          .addScaledVector(pushOut, minPastureDist + 0.001)
-          .normalize();
-      }
-
-      // 3. Villager-to-Villager personal space separation
-      for (const other of this.villagers) {
-        if (other === v) continue;
-        const minSep = 0.020;
-        const d = v.dir.distanceTo(other.dir);
-        if (d < minSep && d > 1e-6) {
-          const push = v.dir.clone().sub(other.dir).normalize();
-          const overlap = (minSep - d) * 0.5;
-          v.dir.addScaledVector(push, overlap).normalize();
-        }
-      }
-
-      // 4. Villager-to-Sheep separation
-      for (const s of this.ctx.entities.sheep) {
-        const minSep = 0.022;
-        const d = v.dir.distanceTo(s.dir);
-        if (d < minSep && d > 1e-6) {
-          const push = v.dir.clone().sub(s.dir).normalize();
-          v.dir.addScaledVector(push, minSep - d).normalize();
-        }
-      }
-    }
-
-    // 5. Enforce water & sheer cliff constraints
-    const surf = terrain.getSurfacePointAndNormal(v.dir);
-    const onBridge = bridgesAndDocks.some(
-      (b) => b.dir.distanceTo(v.dir) < 0.058,
-    );
-    const isTooSteep = surf.normal.dot(v.dir) < 0.74;
-
-    if ((surf.isWater && !onBridge) || surf.isMountain || isTooSteep) {
-      if (fallbackDir) {
-        v.dir.copy(fallbackDir);
-      }
-      v.targetDir = this.pickNextTarget(true);
-    }
+    const nav = navigation ?? new SurfaceNavigation(this.ctx);
+    const before = v.dir.clone();
+    // Crowd spacing is soft; solids and safe terrain always have the final say.
+    nav.separate(v, VILLAGER_RADIUS, neighbors ?? [
+      ...this.villagers.map(other => ({ id: other.id, dir: other.dir, radius: DISCIPLE_RADIUS })),
+      ...this.ctx.entities.sheep.map(other => ({ id: other.id, dir: other.dir, radius: SHEEP_RADIUS })),
+    ]);
+    nav.recover(v.dir, VILLAGER_RADIUS, false, true, fallbackDir ?? before);
   }
 }

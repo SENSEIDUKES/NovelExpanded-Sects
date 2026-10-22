@@ -26,6 +26,8 @@ Shared pieces:
   (`WorldEntities`) every system works against, plus the Sect-zone constants.
 - `spatial.ts`: surface geometry: standing things on the planet, footprints, doorways,
   free-spot checks.
+- `SurfaceNavigation.ts`: shared disciple/sheep footprints, swept surface movement,
+  idle/spawn recovery, crowd-safe movement, oriented deck support and cached local routes.
 - `initialWorld.ts`: what a new Sect world starts with.
 - `worldStats.ts`: the counts and happiness shown in the UI.
 
@@ -37,3 +39,5 @@ systems here, reading and writing `WorldEntities`.
 **Frame order matters.** The loop in `PocketWorldController.animate` runs the systems in a fixed
 order: tour/clock, camera, world style, sky, objects, disciples, creatures, balloons, weather,
 shooting stars, fireflies, effects, render. Keep it unless a change means to alter behavior.
+
+Collision findings, verification and navigation limits: [collision audit](../../../docs/collision-audit.md).
