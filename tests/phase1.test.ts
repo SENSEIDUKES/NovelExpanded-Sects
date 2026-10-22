@@ -12,7 +12,11 @@ import {
   PLANET_SCALE,
   TILT_START_DIST,
 } from '../src/three/cameraZoomRig';
-import { ATMOSPHERE_OUTER_RADIUS } from '../src/three/RoomEnvironment';
+import {
+  ATMOSPHERE_GLOW_CONFIG,
+  ATMOSPHERE_OUTER_RADIUS,
+  createRoomEnvironment,
+} from '../src/three/RoomEnvironment';
 
 function runPhase1Tests() {
   // 1. Verify ~20% planet scale increase and full weather-enclosing atmosphere radius
@@ -122,7 +126,7 @@ function runPhase1Tests() {
     'Pinch zoom out must clamp at MAX_ZOOM_DIST',
   );
 
-  // 6. Verify RoomEnvironment has stripped domestic props and includes circular multi-depth starfield & atmosphere rim
+  // 6. Verify RoomEnvironment has stripped domestic props and includes circular multi-depth starfield & softened atmosphere rim
   const roomEnvSource = fs.readFileSync(
     path.resolve(process.cwd(), 'src/three/RoomEnvironment.ts'),
     'utf8',
@@ -146,6 +150,39 @@ function runPhase1Tests() {
       !roomEnvSource.includes('sillGroup') &&
       !roomEnvSource.includes('linenGroup'),
     'Domestic windowsill, linen cloth, and succulent props must be stripped out',
+  );
+
+  // 7. Verify softened atmospheric glow configuration & shader uniforms
+  assert.ok(
+    ATMOSPHERE_GLOW_CONFIG.rimMaxOpacity <= 0.6 &&
+      ATMOSPHERE_GLOW_CONFIG.rimBaseOpacity <= 0.5 &&
+      ATMOSPHERE_GLOW_CONFIG.innerBloomMaxOpacity <= 0.2,
+    'Atmospheric glow opacities must stay within soft, translucent bounds',
+  );
+  const env = createRoomEnvironment();
+  assert.equal(
+    env.atmosphereRimMaterial.uniforms.uRimBaseOpacity.value,
+    ATMOSPHERE_GLOW_CONFIG.rimBaseOpacity,
+  );
+  assert.equal(
+    env.atmosphereRimMaterial.uniforms.uRimMaxOpacity.value,
+    ATMOSPHERE_GLOW_CONFIG.rimMaxOpacity,
+  );
+  assert.equal(
+    env.innerTroposphereMaterial.uniforms.uInnerBloomStrength.value,
+    ATMOSPHERE_GLOW_CONFIG.innerBloomStrength,
+  );
+  const testTint = new THREE.Color('#ffd6f2');
+  env.setAtmosphereTint(testTint);
+  assert.deepEqual(
+    env.atmosphereRimMaterial.uniforms.uTint.value,
+    testTint,
+    'setAtmosphereTint must update outer rim material tint',
+  );
+  assert.deepEqual(
+    env.innerTroposphereMaterial.uniforms.uTint.value,
+    testTint,
+    'setAtmosphereTint must update inner troposphere material tint',
   );
 
   console.log('✓ All Phase 1 Scene & Camera Transformation tests passed.');

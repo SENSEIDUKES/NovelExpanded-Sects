@@ -4,6 +4,7 @@ import { PLANET_SCALE } from './cameraZoomRig';
 export interface RoomEnvironmentHandles {
   group: THREE.Group;
   atmosphereRimMaterial: THREE.ShaderMaterial;
+  innerTroposphereMaterial: THREE.ShaderMaterial;
   skyMaterial: THREE.ShaderMaterial;
   starfieldPoints: THREE.Group;
   updateTimeOfDay: (
@@ -24,6 +25,17 @@ export interface RoomEnvironmentHandles {
  * orbiting clouds, rain/snow showers, hot air balloons, and shooting stars.
  */
 export const ATMOSPHERE_OUTER_RADIUS = 0.75 * PLANET_SCALE * 1.56; // ~1.404 world units
+
+/**
+ * Tuned atmospheric glow parameters for a soft, airy, natural horizon haze.
+ */
+export const ATMOSPHERE_GLOW_CONFIG = {
+  rimBaseOpacity: 0.46,
+  rimHaloBoost: 0.08,
+  rimMaxOpacity: 0.54,
+  innerBloomStrength: 0.14,
+  innerBloomMaxOpacity: 0.17,
+} as const;
 
 /**
  * Deterministic pseudo-random generator for reproducible 3D star distribution.
@@ -410,12 +422,11 @@ export function createRoomEnvironment(
   group.add(starfieldGroup);
 
   // ---------------------------------------------------------------------------
-  // 3. OPAQUE GLOWING PURPLE/BLUE PLANETARY ATMOSPHERE (Enclosing Weather & Sky)
+  // 3. SOFT GLOWING PLANETARY ATMOSPHERE (Enclosing Weather & Sky)
   // ---------------------------------------------------------------------------
   // Uses NormalBlending at renderOrder = -5 (after stars at -8, before weather/sun at 0)
-  // with high opacity (up to ~0.92 in the troposphere band) so the atmosphere has a
-  // rich, creamy, opaque glow that veils background stars behind the planet's sky
-  // while keeping the terrain and foreground clouds/sun 100% crisp.
+  // with a gentle translucent falloff so the atmosphere wraps the horizon in a soft,
+  // airy haze without overpowering the terrain or cosmos.
   const rimGeo = new THREE.SphereGeometry(ATMOSPHERE_OUTER_RADIUS, 64, 64);
   const atmosphereRimMaterial = new THREE.ShaderMaterial({
     transparent: true,
@@ -429,6 +440,9 @@ export function createRoomEnvironment(
       uNightFactor: { value: 0.0 },
       uWeatherIntensity: { value: 0.35 },
       uTime: { value: 0.0 },
+      uRimBaseOpacity: { value: ATMOSPHERE_GLOW_CONFIG.rimBaseOpacity },
+      uRimHaloBoost: { value: ATMOSPHERE_GLOW_CONFIG.rimHaloBoost },
+      uRimMaxOpacity: { value: ATMOSPHERE_GLOW_CONFIG.rimMaxOpacity },
       // World-type tint (white = untinted)
       uTint: { value: new THREE.Color(1, 1, 1) },
     },
@@ -454,6 +468,9 @@ export function createRoomEnvironment(
       uniform float uTwilightFactor;
       uniform float uNightFactor;
       uniform float uWeatherIntensity;
+      uniform float uRimBaseOpacity;
+      uniform float uRimHaloBoost;
+      uniform float uRimMaxOpacity;
       uniform vec3 uTint;
       uniform float uTime;
 
@@ -466,44 +483,49 @@ export function createRoomEnvironment(
         // 0.0 at center -> ~0.64 at planet terrain limb -> 1.0 at outer atmosphere edge
         float radialFrac = sqrt(clamp(1.0 - viewDot * viewDot, 0.0, 1.0));
 
-        // Dense opaque atmospheric body from the planet surface (0.56) through the cloud/weather zone (0.88),
-        // feathering smoothly into space at the outer boundary (0.88..1.0)
-        float innerRise = smoothstep(0.50, 0.64, radialFrac);
-        float coreBody  = 1.0 - smoothstep(0.83, 0.995, radialFrac);
-        float rimGlow   = smoothstep(0.68, 0.86, radialFrac) * (1.0 - smoothstep(0.88, 1.0, radialFrac));
+        // Soft, gradual atmospheric body from the planet surface through the cloud zone,
+        // feathering smoothly into space with a gentle power curve
+        float innerRise = smoothstep(0.50, 0.65, radialFrac);
+        float outerFade = 1.0 - smoothstep(0.64, 0.99, radialFrac);
+        float coreBody  = pow(outerFade, 1.35);
+        float rimGlow   = smoothstep(0.60, 0.76, radialFrac) * (1.0 - smoothstep(0.76, 0.98, radialFrac));
 
         // Subtle animated upper-atmosphere shimmer
         vec3 dir = normalize(vWorldPos);
         float wave = sin(dir.x * 5.0 + uTime * 0.3) * cos(dir.y * 4.5 - uTime * 0.22) * 0.5 + 0.5;
-        float weatherBoost = 1.0 + uWeatherIntensity * 0.12;
+        float weatherBoost = 1.0 + uWeatherIntensity * 0.06;
 
-        // Luminous opaque cerulean-blue lower troposphere -> rich glowing purple/indigo stratosphere
-        vec3 dayHorizon = vec3(0.46, 0.72, 1.00);
-        vec3 dayMid     = vec3(0.40, 0.50, 0.96);
-        vec3 dayOuter   = vec3(0.46, 0.34, 0.90);
+        // Calm cerulean-blue lower troposphere -> soft lavender/indigo upper atmosphere
+        vec3 dayHorizon = vec3(0.42, 0.66, 0.94);
+        vec3 dayMid     = vec3(0.36, 0.46, 0.88);
+        vec3 dayOuter   = vec3(0.38, 0.30, 0.78);
 
-        vec3 twiHorizon = vec3(0.54, 0.56, 0.98);
-        vec3 twiMid     = vec3(0.48, 0.40, 0.94);
-        vec3 twiOuter   = vec3(0.54, 0.32, 0.88);
+        vec3 twiHorizon = vec3(0.48, 0.50, 0.90);
+        vec3 twiMid     = vec3(0.42, 0.36, 0.84);
+        vec3 twiOuter   = vec3(0.44, 0.28, 0.76);
 
-        vec3 nightHorizon = vec3(0.32, 0.50, 0.92);
-        vec3 nightMid     = vec3(0.30, 0.36, 0.86);
-        vec3 nightOuter   = vec3(0.36, 0.24, 0.78);
+        vec3 nightHorizon = vec3(0.24, 0.38, 0.74);
+        vec3 nightMid     = vec3(0.22, 0.28, 0.68);
+        vec3 nightOuter   = vec3(0.24, 0.18, 0.58);
 
         vec3 horizonCol = dayHorizon * uDayFactor + twiHorizon * uTwilightFactor + nightHorizon * uNightFactor;
         vec3 midCol     = dayMid     * uDayFactor + twiMid     * uTwilightFactor + nightMid     * uNightFactor;
         vec3 outerCol   = dayOuter   * uDayFactor + twiOuter   * uTwilightFactor + nightOuter   * uNightFactor;
 
-        float tMid = smoothstep(0.60, 0.78, radialFrac);
-        float tOut = smoothstep(0.76, 0.95, radialFrac) * (0.85 + 0.15 * wave);
+        float tMid = smoothstep(0.58, 0.78, radialFrac);
+        float tOut = smoothstep(0.74, 0.95, radialFrac) * (0.88 + 0.12 * wave);
         vec3 atmoColor = mix(horizonCol, midCol, tMid);
         atmoColor = mix(atmoColor, outerCol, tOut);
 
-        // Boost emissive-like radiance in the heart of the sky band so the opaque medium glows warmly
-        atmoColor *= (1.06 + rimGlow * 0.22) * weatherBoost;
+        // Gentle radiance in the heart of the sky band without harsh over-bloom
+        atmoColor *= (0.88 + rimGlow * 0.10) * weatherBoost;
 
-        // High opacity (~0.88-0.93) in the sky band so stars behind the atmosphere are veiled
-        float opacity = clamp((innerRise * coreBody * 0.90 + rimGlow * 0.24) * weatherBoost, 0.0, 0.94);
+        // Translucent opacity so the atmosphere reads as a delicate veil
+        float opacity = clamp(
+          (innerRise * coreBody * uRimBaseOpacity + rimGlow * uRimHaloBoost) * weatherBoost,
+          0.0,
+          uRimMaxOpacity
+        );
 
         gl_FragColor = vec4(atmoColor * uTint, opacity);
       }
@@ -515,8 +537,8 @@ export function createRoomEnvironment(
   atmosphereRimMesh.renderOrder = -5;
   group.add(atmosphereRimMesh);
 
-  // Secondary additive bloom shell right around the troposphere cloud-layer
-  // to give the opaque atmosphere a radiant, velvety inner halo
+  // Secondary subtle additive bloom shell right around the troposphere cloud-layer
+  // to give the horizon a delicate, velvety inner cushion
   const innerTroposphereGeo = new THREE.SphereGeometry(
     0.75 * PLANET_SCALE * 1.38,
     48,
@@ -532,6 +554,8 @@ export function createRoomEnvironment(
       uDayFactor: { value: 1.0 },
       uTwilightFactor: { value: 0.0 },
       uNightFactor: { value: 0.0 },
+      uInnerBloomStrength: { value: ATMOSPHERE_GLOW_CONFIG.innerBloomStrength },
+      uInnerBloomMaxOpacity: { value: ATMOSPHERE_GLOW_CONFIG.innerBloomMaxOpacity },
       uTint: { value: new THREE.Color(1, 1, 1) },
     },
     vertexShader: /* glsl */ `
@@ -552,6 +576,8 @@ export function createRoomEnvironment(
       uniform float uDayFactor;
       uniform float uTwilightFactor;
       uniform float uNightFactor;
+      uniform float uInnerBloomStrength;
+      uniform float uInnerBloomMaxOpacity;
       uniform vec3 uTint;
 
       void main() {
@@ -560,13 +586,13 @@ export function createRoomEnvironment(
         float viewDot = abs(dot(N, V));
         float radialFrac = sqrt(clamp(1.0 - viewDot * viewDot, 0.0, 1.0));
 
-        // Luminous inner glow peaking between the horizon and cloud tops
-        float band = smoothstep(0.58, 0.80, radialFrac) * smoothstep(1.0, 0.78, radialFrac);
-        vec3 col = vec3(0.45, 0.66, 1.00) * uDayFactor
-                 + vec3(0.58, 0.46, 0.98) * uTwilightFactor
-                 + vec3(0.36, 0.46, 0.92) * uNightFactor;
+        // Subtle inner glow peaking gently between the horizon and cloud tops
+        float band = smoothstep(0.58, 0.78, radialFrac) * smoothstep(0.98, 0.74, radialFrac);
+        vec3 col = vec3(0.40, 0.60, 0.92) * uDayFactor
+                 + vec3(0.50, 0.40, 0.88) * uTwilightFactor
+                 + vec3(0.28, 0.38, 0.78) * uNightFactor;
 
-        gl_FragColor = vec4(col * uTint, clamp(band * 0.42, 0.0, 0.46));
+        gl_FragColor = vec4(col * uTint, clamp(band * uInnerBloomStrength, 0.0, uInnerBloomMaxOpacity));
       }
     `,
   });
@@ -653,6 +679,7 @@ export function createRoomEnvironment(
     group,
     setAtmosphereTint,
     atmosphereRimMaterial,
+    innerTroposphereMaterial,
     skyMaterial,
     starfieldPoints: starfieldGroup,
     updateTimeOfDay,
