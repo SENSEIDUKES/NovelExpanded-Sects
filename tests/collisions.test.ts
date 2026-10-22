@@ -10,6 +10,7 @@ import { DISCIPLE_RADIUS, SHEEP_RADIUS, SurfaceNavigation, WalkingRoutes } from 
 import { getRainbowFootDirs, isPositionClearOfObstacles } from '../src/three/engine/spatial';
 
 const dir = (x: number, z: number) => new THREE.Vector3(x, 1, z).normalize();
+/** Uniform spherical terrain with optional water regions for collision scenarios. */
 function world(water: (d: THREE.Vector3) => boolean = () => false): WorldContext {
   const terrain = {
     seaLevel: 0.738,
@@ -26,6 +27,7 @@ function world(water: (d: THREE.Vector3) => boolean = () => false): WorldContext
     emitSparkles() {}, report() {}, syncStats() {},
   };
 }
+/** Register a placed footprint without needing a WebGL renderer. */
 function object(ctx: WorldContext, type: PlacedObjectType, center = dir(0, 0), yaw = 0) {
   const entity: PlacedObjectEntity = { id: `${type}_${ctx.entities.placedObjects.length}`, type,
     dir: center, yaw, mesh: new THREE.Group(), baseScale: 1, growth: 1, targetGrowth: 1,
@@ -33,12 +35,16 @@ function object(ctx: WorldContext, type: PlacedObjectType, center = dir(0, 0), y
   ctx.entities.placedObjects.push(entity);
   return entity;
 }
+/** Wire a real disciple system to the lightweight test world. */
 function disciples(ctx: WorldContext) { return new DiscipleSystem(ctx, new DayNightSystem(ctx.report)); }
 
 // Reproducible movement, including real mesh/system integration without a renderer.
 const originalRandom = Math.random;
+const originalNow = Date.now;
 let seed = 8471;
+let clock = 1_700_000_000_000;
 Math.random = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 0x100000000; };
+Date.now = () => clock++;
 try {
   // Deliberate detours reach the far side of obstacles instead of orbiting/reversing forever.
   for (const type of ['pagoda', 'fence', 'rainbow'] as const) {
@@ -101,6 +107,45 @@ try {
     assert.ok(crossed, 'two-way traffic stayed stuck at the lantern approach');
   }
 
+  // Cached long journeys have a bounded per-frame validation cost, regardless of distance.
+  {
+    const ctx = world();
+    const navigation = new SurfaceNavigation(ctx), routes = new WalkingRoutes();
+    const agent = { id: 'long-walk', dir: dir(0, -0.8) }, goal = dir(0, 0.8);
+    assert.ok(routes.direction(agent, goal, navigation, DISCIPLE_RADIUS, 1 / 30));
+    let queries = 0;
+    const surface = ctx.terrain.getSurfacePointAndNormal;
+    ctx.terrain.getSurfacePointAndNormal = (...args) => { queries++; return surface(...args); };
+    for (let frame = 0; frame < 60; frame++) {
+      assert.ok(routes.direction(agent, goal, navigation, DISCIPLE_RADIUS, 1 / 30));
+    }
+    assert.ok(queries <= 60 * 16, `cached walking made ${queries} surface queries in 60 frames`);
+  }
+
+  // Sheep turn toward the detour they actually walk, even when the goal is behind a fence.
+  {
+    const ctx = world(); object(ctx, 'fence', dir(0, 0));
+    const creatures = new CreatureSystem(ctx);
+    const sheep = creatures.spawnSheep(dir(0, -0.07), false);
+    sheep.targetDir.copy(dir(0, 0.12)); sheep.isGrazing = false; sheep.grazeTimer = 20;
+    sheep.speed = 0.05;
+    let detourFrames = 0;
+    for (let frame = 0; frame < 60; frame++) {
+      const before = sheep.dir.clone();
+      // A slow frame completes the turn, letting us check the rendered facing directly.
+      creatures.updateSheep(1 / 8, frame / 8);
+      const normal = ctx.terrain.getSurfacePointAndNormal(sheep.dir).normal;
+      const movement = sheep.dir.clone().sub(before).projectOnPlane(normal);
+      if (movement.lengthSq() < 1e-10) continue;
+      const towardGoal = sheep.targetDir.clone().sub(sheep.dir).projectOnPlane(normal).normalize();
+      if (movement.clone().normalize().dot(towardGoal) > 0.9) continue;
+      detourFrames++;
+      const facing = new THREE.Vector3(0, 0, 1).applyQuaternion(sheep.mesh.quaternion).projectOnPlane(normal).normalize();
+      assert.ok(facing.dot(movement.normalize()) > 0.99, 'sheep faced through the obstacle instead of along its detour');
+    }
+    assert.ok(detourFrames > 5, 'sheep did not take a meaningful detour');
+  }
+
   // Runtime changes invalidate the next route segment; unreachable goals have bounded retries.
   {
     const ctx = world();
@@ -110,7 +155,15 @@ try {
     object(ctx, 'pagoda');
     const navigation = new SurfaceNavigation(ctx);
     const heading = routes.direction(agent, goal, navigation, DISCIPLE_RADIUS, 1);
-    assert.ok(heading, 'placement did not trigger a detour');
+    assert.ok(heading, 'placed scenery stopped the cached route');
+    let reached = false;
+    for (let frame = 0; frame < 450; frame++) {
+      if (agent.dir.distanceTo(goal) < 0.006) { reached = true; break; }
+      const direction = routes.direction(agent, goal, navigation, DISCIPLE_RADIUS, 1 / 30);
+      if (direction) navigation.move(agent, direction, 0.09 / 30, DISCIPLE_RADIUS, []);
+      assert.ok(navigation.isClear(agent.dir, DISCIPLE_RADIUS), 'a distant edit bypassed lookahead validation');
+    }
+    assert.ok(reached, 'cached route did not detour around newly placed scenery');
     const unreachable = dir(0, 0);
     let plans = 0;
     const route = navigation.route.bind(navigation);
@@ -194,4 +247,7 @@ try {
     assert.ok(outsider.dir.distanceTo(v.dir) >= DISCIPLE_RADIUS + SHEEP_RADIUS - 0.001);
   }
   console.log('✓ All collision and navigation regression tests passed.');
-} finally { Math.random = originalRandom; }
+} finally {
+  Math.random = originalRandom;
+  Date.now = originalNow;
+}

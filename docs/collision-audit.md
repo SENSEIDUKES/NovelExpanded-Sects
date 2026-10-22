@@ -7,7 +7,7 @@ rainbow feet, other inhabitants, water, cliffs, bridges and docks.
 
 | Finding | Player-visible effect | Change |
 | --- | --- | --- |
-| Local steering repeatedly chose a different side of nearby obstacles; the watchdog measured movement rather than progress along a route. | Residents could shuffle or circle at scenery indefinitely. | Cached, bounded local A* routes choose explicit detours. Each segment is checked again against current scenery and terrain. |
+| Local steering repeatedly chose a different side of nearby obstacles; the watchdog measured movement rather than progress along a route. | Residents could shuffle or circle at scenery indefinitely. | Cached, bounded local A* routes choose explicit detours. A short lookahead is checked against current scenery and terrain on each frame; every movement substep is also validated. |
 | Crowd separation ran after solid-object correction, including on the final solver pass. | Residents could be pushed back into a building or fence. | Crowd corrections must follow a clear segment; static recovery has the final say. |
 | Pausing, grazing and watching shooting stars bypassed collision checks. | Placing an object or changing the ground under an idle inhabitant could leave it embedded. | Resolve and update mesh positions before idle branches as well as movement. |
 | Exact overlaps were skipped or used a fixed world-axis escape vector. | Overlapping inhabitants could remain stacked; escape could fail at a planet pole. | Deterministic tangent-plane separation and exact spherical clearance handle coincident centers at any latitude. |
@@ -47,3 +47,12 @@ The existing full-world test now checks every resident against every footprint a
 unsafe terrain for a simulated minute, with full pagoda clearance (the old test
 allowed 0.005 penetration), and verifies that each resident leaves its starting
 position.
+
+## Review follow-up
+
+Cached direct walks validate a short lookahead rather than scanning the entire
+remaining journey every frame. Regression coverage counts terrain queries for a
+long cached walk and checks that new scenery ahead still triggers a safe detour.
+Sheep now turn toward their actual movement during detours. Collision fixtures
+control and restore both the random source and clock so ID-based tie breaks are
+repeatable.

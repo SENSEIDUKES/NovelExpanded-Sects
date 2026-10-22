@@ -248,11 +248,10 @@ export class CreatureSystem {
           const surf = terrain.getSurfacePointAndNormal(s.dir);
           s.mesh.position.copy(surf.point).addScaledVector(surf.normal, hop);
 
-          const moveTangent = s.targetDir
-            .clone()
-            .sub(s.dir)
-            .projectOnPlane(surf.normal)
-            .normalize();
+          const actualMove = s.dir.clone().sub(prevSheepDir).projectOnPlane(surf.normal);
+          const moveTangent = actualMove.lengthSq() > 1e-10
+            ? actualMove.normalize()
+            : heading ?? new THREE.Vector3();
           const alignQuat = new THREE.Quaternion().setFromUnitVectors(
             UP_VEC,
             surf.normal,

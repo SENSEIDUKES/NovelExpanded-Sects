@@ -72,6 +72,7 @@ export class SurfaceNavigation {
     })?.object;
   }
 
+  /** Ground or deck height shared by spawning, moving and idle inhabitants. */
   standingPoint(dir: THREE.Vector3): THREE.Vector3 {
     const surface = this.ctx.terrain.getSurfacePointAndNormal(dir);
     const deck = this.deckAt(dir);
@@ -84,6 +85,7 @@ export class SurfaceNavigation {
     return dir.clone().multiplyScalar(Math.max(surface.radius, this.ctx.terrain.seaLevel + height));
   }
 
+  /** Test an agent footprint against solids, pasture limits and supported terrain. */
   isClear(dir: THREE.Vector3, radius: number, inPasture = false, useDecks = true): boolean {
     if (!Number.isFinite(dir.lengthSq()) || Math.abs(dir.lengthSq() - 1) > 0.001) return false;
     for (const solid of this.solids) {
@@ -100,6 +102,7 @@ export class SurfaceNavigation {
     return onDeck || (!surface.isWater && !surface.isMountain && surface.normal.dot(dir) >= 0.75);
   }
 
+  /** Sample a spherical walking segment at the same spacing used for movement. */
   clearSegment(from: THREE.Vector3, to: THREE.Vector3, radius: number, inPasture = false, useDecks = true): boolean {
     const steps = Math.max(1, Math.ceil(from.distanceTo(to) / STEP));
     for (let i = 1; i <= steps; i++) {
@@ -151,6 +154,7 @@ export class SurfaceNavigation {
     return true;
   }
 
+  /** Relieve crowd overlaps only along a path that preserves static clearance. */
   separate(agent: WalkingAgent, radius: number, neighbors: WalkingNeighbor[], inPasture = false, useDecks = true) {
     for (const other of neighbors) {
       if (other.id === agent.id) continue;
@@ -253,6 +257,7 @@ export class SurfaceNavigation {
 export class WalkingRoutes {
   private routes = new WeakMap<WalkingAgent, { target: THREE.Vector3; points: THREE.Vector3[]; retry: number }>();
 
+  /** Follow cached waypoints, checking only nearby ground before each movement step. */
   direction(agent: WalkingAgent, target: THREE.Vector3, navigation: SurfaceNavigation, radius: number,
     dt: number, inPasture = false, useDecks = true): THREE.Vector3 | null {
     let route = this.routes.get(agent);
@@ -262,9 +267,18 @@ export class WalkingRoutes {
     }
     route.retry -= dt;
     while (route.points.length && agent.dir.distanceTo(route.points[0]) < 0.004) route.points.shift();
-    if (route.points.length && !navigation.clearSegment(agent.dir, route.points[0], radius, inPasture, useDecks)) {
-      route.points = [];
-      route.retry = 0;
+    if (route.points.length) {
+      const point = route.points[0];
+      const distance = agent.dir.distanceTo(point);
+      // A direct route can span the globe. Check nearby ground each frame; move()
+      // still validates every step, so distant edits are handled as we approach.
+      const lookAhead = distance > 0.032
+        ? agent.dir.clone().lerp(point, 0.032 / distance).normalize()
+        : point;
+      if (!navigation.clearSegment(agent.dir, lookAhead, radius, inPasture, useDecks)) {
+        route.points = [];
+        route.retry = 0;
+      }
     }
     if (!route.points.length && route.retry <= 0) {
       route.points = navigation.route(agent.dir, target, radius + SKIN, inPasture, useDecks);
@@ -274,5 +288,6 @@ export class WalkingRoutes {
     return point ? point.clone().sub(agent.dir).projectOnPlane(agent.dir).normalize() : null;
   }
 
+  /** Discard an agent's cached route after it stops making progress. */
   invalidate(agent: WalkingAgent) { this.routes.delete(agent); }
 }
