@@ -271,7 +271,7 @@ export function isPositionClearOfObstacles(
   if (
     !allowInsidePasture &&
     pasture.enabled &&
-    dir.distanceTo(pasture.center) < pasture.radius + extraMargin
+    dir.distanceTo(pasture.center) < pasture.radius + extraMargin + 0.008
   ) {
     return false;
   }
@@ -288,8 +288,8 @@ export function isPositionClearOfObstacles(
     if (obj.type === 'rainbow') {
       const [footA, footB] = getRainbowFootDirs(terrain, obj.dir, obj.yaw);
       if (
-        dir.distanceTo(footA) < 0.026 + extraMargin ||
-        dir.distanceTo(footB) < 0.026 + extraMargin
+        dir.distanceTo(footA) < 0.028 + extraMargin ||
+        dir.distanceTo(footB) < 0.028 + extraMargin
       ) {
         return false;
       }
