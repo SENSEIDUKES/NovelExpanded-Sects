@@ -488,26 +488,27 @@ export function createPagodaMesh(spec: PagodaSpec): {
     }
 
     if (tierIdx === 0) {
-      // Grand front doorway with a plaque above it
+      // Grand front doorway with a plaque above it, shrunk to fit a shorter ground tier
+      const k = Math.min(1, tier.height / 0.034);
       const door = new THREE.Mesh(
-        new THREE.BoxGeometry(0.022, 0.026, 0.003),
+        new THREE.BoxGeometry(0.022, 0.026 * k, 0.003),
         doorMat,
       );
-      door.position.set(0, y + 0.013, tier.width / 2 + 0.001);
+      door.position.set(0, y + 0.013 * k, tier.width / 2 + 0.001);
       group.add(door);
 
       const doorGlow = new THREE.Mesh(
-        new THREE.BoxGeometry(0.0016, 0.022, 0.0034),
+        new THREE.BoxGeometry(0.0016, 0.022 * k, 0.0034),
         winMat,
       );
-      doorGlow.position.set(0, y + 0.013, tier.width / 2 + 0.0012);
+      doorGlow.position.set(0, y + 0.013 * k, tier.width / 2 + 0.0012);
       group.add(doorGlow);
 
       const plaque = new THREE.Mesh(
-        new THREE.BoxGeometry(0.016, 0.006, 0.002),
+        new THREE.BoxGeometry(0.016, 0.006 * k, 0.002),
         goldMat,
       );
-      plaque.position.set(0, y + 0.03, tier.width / 2 + 0.002);
+      plaque.position.set(0, y + 0.03 * k, tier.width / 2 + 0.002);
       group.add(plaque);
     }
 
