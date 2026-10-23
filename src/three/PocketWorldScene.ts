@@ -3,6 +3,7 @@ import { CameraViewId, TimeMode, ToolId, WorldState } from '../types/world';
 import { createSectTerraceMesh, PlacedObjectEntity, PlacedObjectType } from './MiniatureObjects';
 import { createPlanetTerrain } from './PlanetTerrain';
 import { PLANET_SCALE } from './cameraZoomRig';
+import { PagodaStyleId } from './pagodaStyles';
 import { WorldTypeId } from './worldTypes';
 import { CameraSystem } from './engine/CameraSystem';
 import {
@@ -22,6 +23,7 @@ import { InputSystem } from './engine/InputSystem';
 import { ObjectAnimationSystem } from './engine/ObjectAnimationSystem';
 import { PlacementSystem } from './engine/PlacementSystem';
 import { RenderSystem } from './engine/RenderSystem';
+import { SectHallSystem } from './engine/SectHallSystem';
 import { SkyEventsSystem } from './engine/SkyEventsSystem';
 import { SkySystem } from './engine/SkySystem';
 import { getBridgesAndDocks } from './engine/spatial';
@@ -53,6 +55,7 @@ export class PocketWorldController {
   private skyEvents: SkyEventsSystem;
   private placement: PlacementSystem;
   private objectAnimation: ObjectAnimationSystem;
+  private sectHall: SectHallSystem;
   private tour: TourSystem;
   private input: InputSystem;
 
@@ -136,6 +139,7 @@ export class PocketWorldController {
       this.skyEvents,
     );
     this.objectAnimation = new ObjectAnimationSystem(this.ctx);
+    this.sectHall = new SectHallSystem(this.ctx);
     this.tour = new TourSystem(
       this.ctx,
       this.cameraSystem,
@@ -185,6 +189,11 @@ export class PocketWorldController {
 
   public setTool(tool: ToolId | null) {
     this.placement.setTool(tool);
+  }
+
+  /** Rebuild the home pagoda in a new look; its spot and footprint stay the same */
+  public setPagodaStyle(id: PagodaStyleId) {
+    this.sectHall.setPagodaStyle(id);
   }
 
   /** Restyle the whole planet; the terrain shape and placed objects are untouched */

@@ -7,6 +7,7 @@ import {
   ToolId,
   WorldState,
 } from '../../types/world';
+import { PAGODA_STYLES, PagodaStyleId } from '../../three/pagodaStyles';
 import { WORLD_TYPES, WorldTypeId } from '../../three/worldTypes';
 
 export type DockCategory = (typeof TOOL_CATEGORIES)[number]['id'];
@@ -35,7 +36,7 @@ export const CATEGORY_METADATA: Record<DockCategory, CategoryMeta> = {
     id: 'structures',
     label: 'Structures',
     shortcut: '3',
-    subtitle: 'Sect sanctuaries, bridges & architectural landmarks',
+    subtitle: "Your Sect's pagoda, and halls to come",
   },
   nature: {
     id: 'nature',
@@ -71,6 +72,14 @@ export const WORLD_TYPE_DESCRIPTIONS: Record<WorldTypeId, string> = {
   ember: 'Obsidian volcanic wastes with glowing magma rivers',
 };
 
+export const PAGODA_STYLE_DESCRIPTIONS: Record<PagodaStyleId, string> = {
+  classic: 'Three cream-and-vermilion tiers under teal roofs and a gold spire',
+  imperial: 'Five crimson tiers, golden glazed roofs and a dragon pearl',
+  hermitage: 'Two low tiers of weathered timber under moss-green roofs',
+  celestial: 'Slender octagonal white-jade tower crowned by a crescent moon',
+  shadow: 'Black lacquer and crimson, blade-sharp eaves and red lanterns',
+};
+
 /**
  * Returns visible tools for a given dock category (excluding hidden farm-prototype tools).
  */
@@ -87,6 +96,9 @@ export function getToolsForCategory(category: Exclude<ToolCategory, 'utility'>):
 export function getCategoryItemCount(category: DockCategory): number {
   if (category === 'world') {
     return WORLD_TYPES.length;
+  }
+  if (category === 'structures') {
+    return PAGODA_STYLES.length + getToolsForCategory(category).length;
   }
   return getToolsForCategory(category).length;
 }

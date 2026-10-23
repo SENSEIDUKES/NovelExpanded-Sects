@@ -7,7 +7,7 @@ import {
 import {
   CATEGORY_METADATA,
   DockCategory,
-  getToolsForCategory,
+  getCategoryItemCount,
 } from './menu/menuConfig';
 import { renderCategoryIcon, renderToolIcon } from './menu/ToolIcons';
 
@@ -89,8 +89,7 @@ export function ToolDock({
         const meta = CATEGORY_METADATA[category.id];
         const isOpen = openCategory === category.id;
         const holdsArmedTool = activeCategory === category.id;
-        const isEmpty =
-          category.id !== 'world' && getToolsForCategory(category.id).length === 0;
+        const isEmpty = getCategoryItemCount(category.id) === 0;
 
         return (
           <button

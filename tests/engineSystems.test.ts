@@ -13,6 +13,7 @@ import { DiscipleSystem } from '../src/three/engine/DiscipleSystem';
 import { EffectsSystem } from '../src/three/engine/EffectsSystem';
 import { populateInitialWorld } from '../src/three/engine/initialWorld';
 import { PlacementSystem } from '../src/three/engine/PlacementSystem';
+import { SectHallSystem } from '../src/three/engine/SectHallSystem';
 import { SkyEventsSystem } from '../src/three/engine/SkyEventsSystem';
 import { getBridgesAndDocks, getObjectCollisionRadius } from '../src/three/engine/spatial';
 import { DISCIPLE_RADIUS, SurfaceNavigation } from '../src/three/engine/SurfaceNavigation';
@@ -58,7 +59,7 @@ function buildHeadlessWorld() {
   const skyEvents = new SkyEventsSystem(ctx);
   const placement = new PlacementSystem(ctx, disciples, creatures, weather, skyEvents);
   populateInitialWorld(ctx, placement, disciples, weather);
-  return { ctx, dayNight, disciples, placement, effects, statsSyncs: () => statsSyncs };
+  return { ctx, reports, dayNight, disciples, placement, effects, statsSyncs: () => statsSyncs };
 }
 
 // 1. The starting world: one pagoda at home base, disciples and clouds
@@ -141,6 +142,37 @@ function buildHeadlessWorld() {
   dayNight.setTimeMode('night');
   assert.equal(dayNight.advance(0.05), false, 'a fixed time mode holds the clock');
   assert.equal(dayNight.timeOfDay, 0.78);
+}
+
+// 5. Pagoda styles: switching rebuilds the one pagoda in place
+{
+  const { ctx, reports } = buildHeadlessWorld();
+  const sectHall = new SectHallSystem(ctx);
+  const pagoda = ctx.entities.placedObjects.find((o) => o.type === 'pagoda')!;
+  const oldMesh = pagoda.mesh;
+  const dir = pagoda.dir.clone();
+
+  sectHall.setPagodaStyle('celestial');
+  const pagodas = ctx.entities.placedObjects.filter((o) => o.type === 'pagoda');
+  assert.equal(pagodas.length, 1, 'still exactly one pagoda');
+  assert.equal(pagodas[0], pagoda, 'the same pagoda entity is restyled');
+  assert.ok(pagoda.dir.distanceTo(dir) < 1e-9, 'the pagoda stays at home base');
+  assert.equal(pagoda.removable, false);
+  assert.notEqual(pagoda.mesh, oldMesh, 'the mesh is rebuilt');
+  assert.ok(ctx.groups.objects.children.includes(pagoda.mesh), 'the new mesh is in the scene');
+  assert.ok(!ctx.groups.objects.children.includes(oldMesh), 'the old mesh is gone');
+  assert.ok(pagoda.mesh.position.distanceTo(oldMesh.position) < 1e-9, 'it stands on the same spot');
+  assert.ok((pagoda.windowMaterials?.length ?? 0) > 0, 'its windows still light up at night');
+  assert.equal(pagoda.bounceActive, true, 'it pops in like a fresh placement');
+  assert.equal(sectHall.pagodaStyle, 'celestial');
+  const state = reports.reduce((prev, update) => update(prev), {} as WorldState);
+  assert.equal(state.pagodaStyle, 'celestial', 'the UI hears about the new style');
+
+  const reportCount = reports.length;
+  const meshBefore = pagoda.mesh;
+  sectHall.setPagodaStyle('celestial');
+  assert.equal(pagoda.mesh, meshBefore, 'picking the current style does nothing');
+  assert.equal(reports.length, reportCount);
 }
 
 console.log('✓ All engine system tests passed.');
