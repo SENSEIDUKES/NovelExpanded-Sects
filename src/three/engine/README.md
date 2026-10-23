@@ -11,6 +11,7 @@ together and runs the frame loop. Each system owns one area, so it can be improv
 | `CameraSystem` | Camera rig, presets, zoom, planet spin/tilt/fling, double-tap focus, opening spin |
 | `InputSystem` | Pointer, touch pinch, wheel and keyboard; turns gestures into camera and placement actions |
 | `PlacementSystem` | Armed tool, hover cursor, building/removing/sculpting, the locked Sect grounds |
+| `SectHallSystem` | The home pagoda's look (`../pagodaStyles.ts`) and rebuilding it in place |
 | `DiscipleSystem` | Disciples: spawning, choosing destinations, steering, collisions |
 | `CreatureSystem` | Sheep, sailboats, swans and ducks |
 | `WeatherSystem` | Rain and snow clouds and what they do to the ground and trees |

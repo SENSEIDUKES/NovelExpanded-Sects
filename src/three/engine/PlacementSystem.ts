@@ -21,6 +21,7 @@ import {
   PlacedObjectEntity,
   PlacedObjectType,
 } from '../MiniatureObjects';
+import { DEFAULT_PAGODA_STYLE, getPagodaStyle } from '../pagodaStyles';
 import { SECT_ZONE_ANGLE, WorldContext } from './context';
 import type { CreatureSystem } from './CreatureSystem';
 import type { DiscipleSystem } from './DiscipleSystem';
@@ -131,7 +132,7 @@ export class PlacementSystem {
     let butterflySwarm: THREE.Group | undefined;
 
     if (type === 'pagoda') {
-      const res = createPagodaMesh();
+      const res = createPagodaMesh(getPagodaStyle(DEFAULT_PAGODA_STYLE).spec);
       meshGroup = res.group;
       windowMaterials = res.windowMaterials;
     } else if (type === 'house') {

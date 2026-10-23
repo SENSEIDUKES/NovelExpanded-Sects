@@ -5,10 +5,12 @@ import {
   getCategoryItemCount,
   getToolLiveCount,
   getToolsForCategory,
+  PAGODA_STYLE_DESCRIPTIONS,
   resolveShortcutAction,
   WORLD_TYPE_DESCRIPTIONS,
 } from '../src/components/menu/menuConfig';
 import { TOOL_CATEGORIES } from '../src/types/world';
+import { PAGODA_STYLES } from '../src/three/pagodaStyles';
 import { WORLD_TYPES } from '../src/three/worldTypes';
 
 function runProMenuTests() {
@@ -55,6 +57,17 @@ function runProMenuTests() {
     0,
     'Structures category should filter out farm prototype buildings until Sect structures are added',
   );
+  assert.equal(
+    getCategoryItemCount('structures'),
+    PAGODA_STYLES.length,
+    'Structures category lists the pagoda styles',
+  );
+  for (const style of PAGODA_STYLES) {
+    assert.ok(
+      PAGODA_STYLE_DESCRIPTIONS[style.id]?.length > 10,
+      `Pagoda style ${style.id} must have a description`,
+    );
+  }
 
   // 4. Verify ActiveToolHud metadata lookup for creation and utility brushes
   assert.equal(getActiveToolMetadata(null), null, 'Null tool returns null HUD metadata');

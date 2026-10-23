@@ -1,14 +1,17 @@
 import { Check, Sparkles, X } from 'lucide-react';
 import { ToolId, WorldState } from '../../types/world';
+import { PAGODA_STYLES, PagodaStyleId } from '../../three/pagodaStyles';
 import { WORLD_TYPES, WorldTypeId } from '../../three/worldTypes';
 import {
   CATEGORY_METADATA,
   DockCategory,
+  getCategoryItemCount,
   getToolsForCategory,
   getToolLiveCount,
+  PAGODA_STYLE_DESCRIPTIONS,
   WORLD_TYPE_DESCRIPTIONS,
 } from './menuConfig';
-import { renderCategoryIcon, renderToolIcon, WorldSwatch } from './ToolIcons';
+import { PagodaSwatch, renderCategoryIcon, renderToolIcon, WorldSwatch } from './ToolIcons';
 
 interface CategoryPopoverProps {
   category: DockCategory | null;
@@ -17,12 +20,15 @@ interface CategoryPopoverProps {
   onSelectTool: (tool: ToolId) => void;
   worldType: WorldTypeId;
   onSelectWorldType: (world: WorldTypeId) => void;
+  pagodaStyle: PagodaStyleId;
+  onSelectPagodaStyle: (style: PagodaStyleId) => void;
   objectCounts: WorldState['objectCounts'];
 }
 
 /**
  * Apple Pro floating glass popover displaying a 2-column grid of labeled tool cards
- * (or planetary biome swatches when 'world' is selected).
+ * (or planetary biome swatches when 'world' is selected, and the pagoda's looks atop
+ * 'structures').
  */
 export function CategoryPopover({
   category,
@@ -31,13 +37,64 @@ export function CategoryPopover({
   onSelectTool,
   worldType,
   onSelectWorldType,
+  pagodaStyle,
+  onSelectPagodaStyle,
   objectCounts,
 }: CategoryPopoverProps) {
   if (!category) return null;
 
   const meta = CATEGORY_METADATA[category];
   const tools = getToolsForCategory(category);
-  const itemCount = category === 'world' ? WORLD_TYPES.length : tools.length;
+  const itemCount = getCategoryItemCount(category);
+
+  const toolGrid = (
+    <div className="grid grid-cols-2 gap-2">
+      {tools.map((tool) => {
+        const isSelected = activeTool === tool.id;
+        const liveCount = getToolLiveCount(tool.id, objectCounts);
+        return (
+          <button
+            key={tool.id}
+            type="button"
+            onClick={() => onSelectTool(tool.id)}
+            aria-pressed={isSelected}
+            className={`group p-3 rounded-2xl border text-left flex flex-col justify-between gap-2.5 min-h-[88px] transition-all duration-150 cursor-pointer active:scale-[0.98] ${
+              isSelected
+                ? 'bg-emerald-500/18 border-emerald-400/50 text-white shadow-sm'
+                : 'bg-white/[0.04] border-white/8 text-white/85 hover:bg-white/[0.09] hover:border-white/18'
+            }`}
+          >
+            <div className="flex items-center justify-between gap-2 w-full">
+              <div
+                className={`w-8 h-8 rounded-xl flex items-center justify-center border transition-colors ${
+                  isSelected
+                    ? 'bg-emerald-400/25 border-emerald-300/40 text-emerald-200'
+                    : 'bg-white/8 border-white/10 text-white/80 group-hover:text-white group-hover:bg-white/12'
+                }`}
+              >
+                {renderToolIcon(tool.id, 'w-4 h-4 shrink-0')}
+              </div>
+
+              {liveCount !== null && (
+                <span className="text-[11px] font-mono-tabular text-white/50">
+                  {liveCount}
+                </span>
+              )}
+            </div>
+
+            <div className="min-w-0 w-full">
+              <div className="text-xs font-semibold text-white whitespace-nowrap truncate">
+                {tool.label}
+              </div>
+              <p className="text-[11px] text-white/55 line-clamp-2 leading-snug mt-0.5">
+                {tool.description}
+              </p>
+            </div>
+          </button>
+        );
+      })}
+    </div>
+  );
 
   return (
     <section
@@ -114,6 +171,48 @@ export function CategoryPopover({
               );
             })}
           </div>
+        ) : category === 'structures' ? (
+          <div className="flex flex-col gap-4">
+            <div>
+              <h3 className="px-1 pb-2 text-[11px] font-semibold uppercase tracking-wider text-white/50">
+                Pagoda
+              </h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-1 gap-2">
+                {PAGODA_STYLES.map((style) => {
+                  const isSelected = style.id === pagodaStyle;
+                  return (
+                    <button
+                      key={style.id}
+                      type="button"
+                      onClick={() => onSelectPagodaStyle(style.id)}
+                      aria-pressed={isSelected}
+                      className={`group w-full p-3 rounded-2xl border text-left flex items-center gap-3 transition-all duration-150 cursor-pointer ${
+                        isSelected
+                          ? 'bg-emerald-500/16 border-emerald-400/45 text-white shadow-sm'
+                          : 'bg-white/[0.04] border-white/8 text-white/85 hover:bg-white/[0.09] hover:border-white/16'
+                      }`}
+                    >
+                      <PagodaSwatch style={style} sizeClass="w-9 h-9" />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-xs font-semibold text-white truncate">
+                            {style.label}
+                          </span>
+                          {isSelected && (
+                            <Check className="w-3.5 h-3.5 text-emerald-300 shrink-0" />
+                          )}
+                        </div>
+                        <p className="text-[11px] text-white/60 line-clamp-1 mt-0.5">
+                          {PAGODA_STYLE_DESCRIPTIONS[style.id]}
+                        </p>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            {tools.length > 0 && toolGrid}
+          </div>
         ) : tools.length === 0 ? (
           <div className="py-8 px-4 text-center flex flex-col items-center gap-2">
             <div className="w-10 h-10 rounded-2xl bg-white/6 border border-white/10 flex items-center justify-center text-white/50">
@@ -127,52 +226,7 @@ export function CategoryPopover({
             </p>
           </div>
         ) : (
-          <div className="grid grid-cols-2 gap-2">
-            {tools.map((tool) => {
-              const isSelected = activeTool === tool.id;
-              const liveCount = getToolLiveCount(tool.id, objectCounts);
-              return (
-                <button
-                  key={tool.id}
-                  type="button"
-                  onClick={() => onSelectTool(tool.id)}
-                  aria-pressed={isSelected}
-                  className={`group p-3 rounded-2xl border text-left flex flex-col justify-between gap-2.5 min-h-[88px] transition-all duration-150 cursor-pointer active:scale-[0.98] ${
-                    isSelected
-                      ? 'bg-emerald-500/18 border-emerald-400/50 text-white shadow-sm'
-                      : 'bg-white/[0.04] border-white/8 text-white/85 hover:bg-white/[0.09] hover:border-white/18'
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-2 w-full">
-                    <div
-                      className={`w-8 h-8 rounded-xl flex items-center justify-center border transition-colors ${
-                        isSelected
-                          ? 'bg-emerald-400/25 border-emerald-300/40 text-emerald-200'
-                          : 'bg-white/8 border-white/10 text-white/80 group-hover:text-white group-hover:bg-white/12'
-                      }`}
-                    >
-                      {renderToolIcon(tool.id, 'w-4 h-4 shrink-0')}
-                    </div>
-
-                    {liveCount !== null && (
-                      <span className="text-[11px] font-mono-tabular text-white/50">
-                        {liveCount}
-                      </span>
-                    )}
-                  </div>
-
-                  <div className="min-w-0 w-full">
-                    <div className="text-xs font-semibold text-white whitespace-nowrap truncate">
-                      {tool.label}
-                    </div>
-                    <p className="text-[11px] text-white/55 line-clamp-2 leading-snug mt-0.5">
-                      {tool.description}
-                    </p>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
+          toolGrid
         )}
       </div>
     </section>

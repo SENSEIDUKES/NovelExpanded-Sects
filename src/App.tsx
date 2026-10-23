@@ -11,6 +11,7 @@ import { ActiveToolHud } from './components/menu/ActiveToolHud';
 import { CategoryPopover } from './components/menu/CategoryPopover';
 import { WorldInspectorPopover } from './components/menu/WorldInspectorPopover';
 import { resolveShortcutAction } from './components/menu/menuConfig';
+import { DEFAULT_PAGODA_STYLE, PagodaStyleId } from './three/pagodaStyles';
 import { DEFAULT_WORLD_TYPE, WorldTypeId } from './three/worldTypes';
 
 export default function App() {
@@ -25,6 +26,7 @@ export default function App() {
     activeTool: null,
     activeView: 'orb',
     worldType: DEFAULT_WORLD_TYPE,
+    pagodaStyle: DEFAULT_PAGODA_STYLE,
     timeMode: 'auto',
     timeOfDay: 0.24,
     tourActive: false,
@@ -154,6 +156,10 @@ export default function App() {
     controllerRef.current?.setWorldType(world);
   };
 
+  const handleSelectPagodaStyle = (style: PagodaStyleId) => {
+    controllerRef.current?.setPagodaStyle(style);
+  };
+
   const handleSelectTool = (tool: ToolId) => {
     const nextTool = worldState.activeTool === tool ? null : tool;
     controllerRef.current?.setTool(nextTool);
@@ -252,6 +258,8 @@ export default function App() {
             onSelectTool={handleSelectTool}
             worldType={worldState.worldType}
             onSelectWorldType={handleSelectWorldType}
+            pagodaStyle={worldState.pagodaStyle}
+            onSelectPagodaStyle={handleSelectPagodaStyle}
             objectCounts={worldState.objectCounts}
           />
 

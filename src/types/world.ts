@@ -1,3 +1,4 @@
+import type { PagodaStyleId } from '../three/pagodaStyles';
 import type { WorldTypeId } from '../three/worldTypes';
 
 export type ToolId =
@@ -55,6 +56,8 @@ export interface WorldState {
   activeView: CameraViewId;
   /** Active world type (planet style) */
   worldType: WorldTypeId;
+  /** Look of the Sect's home pagoda */
+  pagodaStyle: PagodaStyleId;
   timeMode: TimeMode;
   /** 0..1 where 0.25 = warm noon/afternoon, 0.52 = blue twilight, 0.78 = deep night */
   timeOfDay: number;

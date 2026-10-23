@@ -32,6 +32,7 @@ import {
   Wind,
 } from 'lucide-react';
 import { ToolId } from '../../types/world';
+import { PagodaStyleDefinition } from '../../three/pagodaStyles';
 import { WorldTypeDefinition } from '../../three/worldTypes';
 import { DockCategory } from './menuConfig';
 
@@ -141,5 +142,103 @@ export function WorldSwatch({
         background: `linear-gradient(160deg, ${world.swatch.land} 0%, ${world.swatch.land} 54%, ${world.swatch.water} 54%, ${world.swatch.water} 100%)`,
       }}
     />
+  );
+}
+
+/** Tiny pagoda silhouette in a style's own colors and tier shape, for Structures cards */
+export function PagodaSwatch({
+  style,
+  sizeClass = 'w-6 h-6',
+}: {
+  style: PagodaStyleDefinition;
+  sizeClass?: string;
+}) {
+  const { spec, swatch } = style;
+  const finialHeight = 0.03;
+  const totalHeight =
+    spec.tierBaseY +
+    spec.tiers.reduce((sum, t) => sum + t.height + t.eaveRise * 0.8, 0) +
+    finialHeight;
+  const widest = Math.max(spec.platform.low.size, ...spec.tiers.map((t) => t.eaveWidth));
+  const scale = Math.min(26 / widest, 25 / totalHeight);
+  const cx = 16;
+  const ground = 28.5;
+  const toY = (h: number) => ground - h * scale;
+
+  const parts: React.ReactNode[] = [];
+  const baseW = spec.platform.low.size * scale;
+  parts.push(
+    <rect
+      key="base"
+      x={cx - baseW / 2}
+      y={toY(spec.tierBaseY)}
+      width={baseW}
+      height={spec.tierBaseY * scale}
+      fill="#8f8a82"
+    />,
+  );
+
+  let h = spec.tierBaseY;
+  spec.tiers.forEach((tier, i) => {
+    const w = tier.width * scale;
+    parts.push(
+      <rect
+        key={`wall-${i}`}
+        x={cx - w / 2}
+        y={toY(h + tier.height)}
+        width={w}
+        height={tier.height * scale}
+        fill={swatch.wall}
+      />,
+    );
+    h += tier.height;
+    // Roof drawn a little taller than life so the tiers read at icon size
+    const half = (tier.eaveWidth * scale) / 2;
+    const rise = Math.max(1.2, tier.eaveRise * scale * 1.6);
+    const flare = rise * 0.7;
+    const y = toY(h);
+    parts.push(
+      <polygon
+        key={`roof-${i}`}
+        points={[
+          [cx - half - flare, y - flare],
+          [cx - half, y + 0.4],
+          [cx + half, y + 0.4],
+          [cx + half + flare, y - flare],
+          [cx + half * 0.42, y - rise],
+          [cx - half * 0.42, y - rise],
+        ]
+          .map(([px, py]) => `${px.toFixed(2)},${py.toFixed(2)}`)
+          .join(' ')}
+        fill={swatch.roof}
+        stroke={swatch.trim}
+        strokeWidth={0.5}
+        strokeLinejoin="round"
+      />,
+    );
+    h += tier.eaveRise * 0.8;
+  });
+
+  parts.push(
+    <line
+      key="finial"
+      x1={cx}
+      x2={cx}
+      y1={toY(h)}
+      y2={toY(h + finialHeight * 0.9)}
+      stroke={swatch.trim}
+      strokeWidth={1.2}
+      strokeLinecap="round"
+    />,
+  );
+
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 32 32"
+      className={`${sizeClass} rounded-xl border border-white/20 bg-white/[0.08] shrink-0 block`}
+    >
+      {parts}
+    </svg>
   );
 }
