@@ -107,9 +107,8 @@ export class PocketWorldController {
     };
     planetRoot.add(groups.objects, groups.inhabitants, groups.atmosphere, groups.effects);
 
-    // Sun, moon and fireflies
+    // Sun, moon and temporary placement effects
     this.sky.addCelestialBodies(planetRoot);
-    this.sky.addFireflies(planetRoot);
     this.effects = new EffectsSystem(terrain, groups.effects, this.sky.glowSprite);
 
     this.ctx = {
@@ -149,8 +148,11 @@ export class PocketWorldController {
     this.runtime = new EngineRuntime({
       systems: [
         { id: 'world-resources', dispose: () => {
-          try { disposeSceneResources(this.scene); }
-          finally { this.renderSystem.dispose(); }
+          try { disposeSceneResources(this.scene, { retainTextures: new Set([this.sky.glowSprite]) }); }
+          finally {
+            try { this.sky.dispose(); }
+            finally { this.renderSystem.dispose(); }
+          }
         } },
         { id: 'world-simulation', fixedUpdate: (frame) => this.updateSimulation(frame) },
         { id: 'world-presentation', update: (frame) => this.updatePresentation(frame) },
@@ -301,7 +303,6 @@ export class PocketWorldController {
       dt: deltaSeconds, elapsed, warmGlow: light.warmGlow, camera: this.cameraSystem.camera,
       holdBeamsAcrossView: this.tour.active && this.tour.time >= 27,
     });
-    this.sky.updateFireflies(light, elapsed);
   }
 
   private animate = (timestampMs = performance.now()) => {
