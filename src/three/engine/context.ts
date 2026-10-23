@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { SECT_WORLD_DEFINITION } from '../../game/sects/worldDefinition';
 import type { WorldState } from '../../types/world';
 import type {
   BalloonEntity,
@@ -24,8 +25,9 @@ export const UP_VEC = new THREE.Vector3(0, 1, 0);
  * The Sect grounds: a fixed, locked zone around the pagoda, the same on every Sect's
  * world. Its ground is leveled and paved, and nothing can be built or sculpted there.
  */
-export const SECT_ZONE_ANGLE = 0.17;
-export const SECT_ZONE_BLEND_ANGLE = 0.3;
+// Compatibility defaults for existing fixtures and Sect-specific callers.
+export const SECT_ZONE_ANGLE = SECT_WORLD_DEFINITION.protectedGrounds.angularRadius;
+export const SECT_ZONE_BLEND_ANGLE = SECT_WORLD_DEFINITION.protectedGrounds.blendAngularRadius;
 
 export type StateReporter = (updater: (prev: WorldState) => WorldState) => void;
 
@@ -78,6 +80,8 @@ export interface WorldContext {
   entities: WorldEntities;
   /** Where every Sect's pagoda stands (planet space) */
   homeBaseDirection: THREE.Vector3;
+  /** Protected home-ground settings supplied by the world definition. */
+  homeZone?: { angularRadius: number; blendAngularRadius: number };
   pasture: PastureConfig;
   emitSparkles: SparkleEmitter;
   /** Push a change to the React UI */

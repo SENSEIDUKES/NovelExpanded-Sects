@@ -10,6 +10,7 @@ import type { PlacementSystem } from './PlacementSystem';
 import type { SkyEventsSystem } from './SkyEventsSystem';
 import { computeYawFacingTarget, getBuildingEntranceDir } from './spatial';
 import type { WeatherSystem } from './WeatherSystem';
+import { releaseObjectResources } from './SceneResources';
 
 /**
  * Tour choreography: the scripted 30-second showcase. It poses the planet and camera
@@ -19,7 +20,7 @@ import type { WeatherSystem } from './WeatherSystem';
 export class TourSystem {
   private isActive = false;
   private elapsed = 0;
-  private startTimeMs = 0;
+  private startTimeSeconds = 0;
   private lastReportedRemaining = -1;
   private stepTriggered = new Set<number>();
   private cursorDir = new THREE.Vector3(-0.16, 0.22, 0.96).normalize();
@@ -34,6 +35,7 @@ export class TourSystem {
     private creatures: CreatureSystem,
     private weather: WeatherSystem,
     private skyEvents: SkyEventsSystem,
+    private nowSeconds: () => number = () => performance.now() / 1000,
   ) {}
 
   get active() {
@@ -55,8 +57,10 @@ export class TourSystem {
   private trackPlacedObject(entity: PlacedObjectEntity) {
     this.spawnedCleanups.push(() => {
       const idx = this.ctx.entities.placedObjects.indexOf(entity);
-      if (idx !== -1) this.ctx.entities.placedObjects.splice(idx, 1);
+      if (idx === -1) return;
+      this.ctx.entities.placedObjects.splice(idx, 1);
       this.ctx.groups.objects.remove(entity.mesh);
+      releaseObjectResources(entity.mesh);
     });
   }
 
@@ -65,7 +69,7 @@ export class TourSystem {
     this.isActive = true;
     this.camera.introSpinActive = false;
     this.elapsed = 0;
-    this.startTimeMs = performance.now();
+    this.startTimeSeconds = this.nowSeconds();
     this.lastReportedRemaining = 30;
     this.stepTriggered.clear();
     this.placement.resetCursor();
@@ -140,8 +144,8 @@ export class TourSystem {
   }
 
   update() {
-    // Use exact wall-clock elapsed time so the tour lasts an exact 30.0 seconds
-    this.elapsed = (performance.now() - this.startTimeMs) / 1000;
+    // The host may supply active engine time so pausing does not skip tour steps.
+    this.elapsed = this.nowSeconds() - this.startTimeSeconds;
     if (this.elapsed >= 30.0) {
       this.isActive = false;
       this.placement.resetCursor();
@@ -340,8 +344,10 @@ export class TourSystem {
         this.spawnedCleanups.push(() => {
           for (const v of [v1, v2]) {
             const idx = this.ctx.entities.villagers.indexOf(v);
-            if (idx !== -1) this.ctx.entities.villagers.splice(idx, 1);
+            if (idx === -1) continue;
+            this.ctx.entities.villagers.splice(idx, 1);
             this.ctx.groups.inhabitants.remove(v.mesh);
+            releaseObjectResources(v.mesh);
           }
         });
         this.ctx.syncStats();
@@ -395,8 +401,10 @@ export class TourSystem {
         const boat = this.creatures.spawnSailboat(sailboatSpot, true);
         this.spawnedCleanups.push(() => {
           const idx = this.ctx.entities.sailboats.indexOf(boat);
-          if (idx !== -1) this.ctx.entities.sailboats.splice(idx, 1);
+          if (idx === -1) return;
+          this.ctx.entities.sailboats.splice(idx, 1);
           this.ctx.groups.inhabitants.remove(boat.mesh);
+          releaseObjectResources(boat.mesh);
         });
         this.ctx.syncStats();
       }
@@ -456,8 +464,10 @@ export class TourSystem {
         this.spawnedCleanups.push(() => {
           for (const v of [vA, vB]) {
             const idx = this.ctx.entities.villagers.indexOf(v);
-            if (idx !== -1) this.ctx.entities.villagers.splice(idx, 1);
+            if (idx === -1) continue;
+            this.ctx.entities.villagers.splice(idx, 1);
             this.ctx.groups.inhabitants.remove(v.mesh);
+            releaseObjectResources(v.mesh);
           }
         });
         this.ctx.syncStats();
@@ -474,8 +484,10 @@ export class TourSystem {
         this.spawnedCleanups.push(() => {
           for (const s of [sA, sB]) {
             const idx = this.ctx.entities.sheep.indexOf(s);
-            if (idx !== -1) this.ctx.entities.sheep.splice(idx, 1);
+            if (idx === -1) continue;
+            this.ctx.entities.sheep.splice(idx, 1);
             this.ctx.groups.inhabitants.remove(s.mesh);
+            releaseObjectResources(s.mesh);
           }
         });
         this.ctx.syncStats();
@@ -548,8 +560,10 @@ export class TourSystem {
         const snowCloud = this.weather.spawnCloud(snowCloudSpot, true, 5.5, true);
         this.spawnedCleanups.push(() => {
           const idx = this.ctx.entities.clouds.indexOf(snowCloud);
-          if (idx !== -1) this.ctx.entities.clouds.splice(idx, 1);
+          if (idx === -1) return;
+          this.ctx.entities.clouds.splice(idx, 1);
           this.ctx.groups.atmosphere.remove(snowCloud.mesh);
+          releaseObjectResources(snowCloud.mesh);
         });
         if (this.ctx.entities.clouds.length > 0) {
           this.ctx.entities.clouds[0].currentDir.set(-0.12, 0.24, 0.96).normalize();
@@ -579,8 +593,10 @@ export class TourSystem {
         const bal = this.skyEvents.spawnBalloon(balloonSpot, true);
         this.spawnedCleanups.push(() => {
           const idx = this.ctx.entities.balloons.indexOf(bal);
-          if (idx !== -1) this.ctx.entities.balloons.splice(idx, 1);
+          if (idx === -1) return;
+          this.ctx.entities.balloons.splice(idx, 1);
           this.ctx.groups.atmosphere.remove(bal.mesh);
+          releaseObjectResources(bal.mesh);
         });
         this.ctx.syncStats();
       }

@@ -6,6 +6,7 @@ import {
   ShootingStarEntity,
 } from '../MiniatureObjects';
 import { UP_VEC, WorldContext } from './context';
+import { releaseObjectResources } from './SceneResources';
 
 /**
  * Things in the sky: hot air balloons drifting through the atmosphere and shooting
@@ -128,6 +129,7 @@ export class SkyEventsSystem {
       st.age += dt;
       if (st.age >= st.maxAge) {
         this.ctx.groups.atmosphere.remove(st.mesh);
+        releaseObjectResources(st.mesh);
         stars.splice(i, 1);
         continue;
       }

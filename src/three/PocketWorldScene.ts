@@ -1,4 +1,8 @@
 import * as THREE from 'three';
+import { EngineRuntime, type EngineFixedFrame, type EngineFrame } from '../engine';
+import { SECT_WORLD_DEFINITION } from '../game/sects/worldDefinition';
+import { populateSectWorld } from '../game/sects/initialWorld';
+import { disposeSceneResources } from './engine/SceneResources';
 import { CameraViewId, TimeMode, ToolId, WorldState } from '../types/world';
 import { createSectTerraceMesh, PlacedObjectEntity, PlacedObjectType } from './MiniatureObjects';
 import { createPlanetTerrain } from './PlanetTerrain';
@@ -8,8 +12,6 @@ import { WorldTypeId } from './worldTypes';
 import { CameraSystem } from './engine/CameraSystem';
 import {
   createWorldEntities,
-  SECT_ZONE_ANGLE,
-  SECT_ZONE_BLEND_ANGLE,
   StateReporter,
   UP_VEC,
   WorldContext,
@@ -18,7 +20,6 @@ import { CreatureSystem } from './engine/CreatureSystem';
 import { DayNightSystem } from './engine/DayNightSystem';
 import { DiscipleSystem } from './engine/DiscipleSystem';
 import { EffectsSystem } from './engine/EffectsSystem';
-import { populateInitialWorld } from './engine/initialWorld';
 import { InputSystem } from './engine/InputSystem';
 import { ObjectAnimationSystem } from './engine/ObjectAnimationSystem';
 import { PlacementSystem } from './engine/PlacementSystem';
@@ -39,7 +40,10 @@ import { computeWorldStats } from './engine/worldStats';
 export class PocketWorldController {
   private report: StateReporter;
   private animFrameId: number | null = null;
-  private clock = new THREE.Clock();
+  private runtime: EngineRuntime;
+  private previousFrameMs: number | null = null;
+  private disposed = false;
+  private manuallyPaused = false;
   private scene: THREE.Scene;
   private ctx: WorldContext;
 
@@ -84,13 +88,14 @@ export class PocketWorldController {
     planetRoot.add(terrain.group);
 
     // Level and lock the Sect grounds, then pave them with the stone terrace
-    const homeBaseDirection = new THREE.Vector3(-0.16, 0.22, 0.96).normalize();
+    const definition = SECT_WORLD_DEFINITION;
+    const homeBaseDirection = new THREE.Vector3(...definition.homeDirection).normalize();
     const levelRadius = terrain.lockFlatZone(
       homeBaseDirection,
-      SECT_ZONE_ANGLE,
-      SECT_ZONE_BLEND_ANGLE,
+      definition.protectedGrounds.angularRadius,
+      definition.protectedGrounds.blendAngularRadius,
     );
-    const terrace = createSectTerraceMesh(levelRadius, SECT_ZONE_ANGLE);
+    const terrace = createSectTerraceMesh(levelRadius, definition.protectedGrounds.angularRadius);
     terrace.quaternion.setFromUnitVectors(UP_VEC, homeBaseDirection);
     planetRoot.add(terrace);
 
@@ -113,10 +118,11 @@ export class PocketWorldController {
       groups,
       entities: createWorldEntities(),
       homeBaseDirection,
+      homeZone: definition.protectedGrounds,
       pasture: {
-        center: new THREE.Vector3(-0.20, -0.15, 0.97).normalize(),
-        radius: 0.098,
-        enabled: false,
+        center: new THREE.Vector3(...definition.pasture.direction).normalize(),
+        radius: definition.pasture.radius,
+        enabled: definition.pasture.enabled,
       },
       emitSparkles: (dir, hexColor, customRadius) =>
         this.effects.emitSparklesAtDir(dir, hexColor, customRadius),
@@ -140,6 +146,18 @@ export class PocketWorldController {
     );
     this.objectAnimation = new ObjectAnimationSystem(this.ctx);
     this.sectHall = new SectHallSystem(this.ctx);
+    this.runtime = new EngineRuntime({
+      systems: [
+        { id: 'world-resources', dispose: () => {
+          try { disposeSceneResources(this.scene); }
+          finally { this.renderSystem.dispose(); }
+        } },
+        { id: 'world-simulation', fixedUpdate: (frame) => this.updateSimulation(frame) },
+        { id: 'world-presentation', update: (frame) => this.updatePresentation(frame) },
+        { id: 'renderer', update: () => this.renderSystem.render(this.scene, this.cameraSystem.camera) },
+        { id: 'input', dispose: () => this.input.dispose() },
+      ],
+    });
     this.tour = new TourSystem(
       this.ctx,
       this.cameraSystem,
@@ -149,6 +167,7 @@ export class PocketWorldController {
       this.creatures,
       this.weather,
       this.skyEvents,
+      () => this.runtime.diagnostics().elapsedSeconds,
     );
     this.input = new InputSystem(
       this.ctx,
@@ -162,10 +181,12 @@ export class PocketWorldController {
       },
     );
 
-    populateInitialWorld(this.ctx, this.placement, this.disciples, this.weather);
+    populateSectWorld(this.ctx, this.placement, this.disciples, this.weather);
     this.input.bind();
     this.renderSystem.watchResize(this.cameraSystem.camera);
     this.syncWorldStats();
+    document.addEventListener('visibilitychange', this.onVisibilityChange);
+    this.onVisibilityChange();
     this.animate();
   }
 
@@ -176,53 +197,65 @@ export class PocketWorldController {
     removable = true,
     withSparkles = true,
   ): PlacedObjectEntity {
+    this.assertAlive();
     return this.placement.placeStaticObject(type, dir, yaw, removable, withSparkles);
   }
 
   public emitSparklesAtDir(dir: THREE.Vector3, hexColor?: string, customRadius?: number) {
+    this.assertAlive();
     this.effects.emitSparklesAtDir(dir, hexColor, customRadius);
   }
 
   public handleSurfaceAction(localDir: THREE.Vector3) {
+    this.assertAlive();
     this.placement.handleSurfaceAction(localDir);
   }
 
   public setTool(tool: ToolId | null) {
+    this.assertAlive();
     this.placement.setTool(tool);
   }
 
   /** Rebuild the home pagoda in a new look; its spot and footprint stay the same */
   public setPagodaStyle(id: PagodaStyleId) {
+    this.assertAlive();
     this.sectHall.setPagodaStyle(id);
   }
 
   /** Restyle the whole planet; the terrain shape and placed objects are untouched */
   public setWorldType(id: WorldTypeId) {
+    this.assertAlive();
     this.worldStyle.setWorldType(id);
   }
 
   public setTimeMode(mode: TimeMode) {
+    this.assertAlive();
     this.dayNight.setTimeMode(mode);
   }
 
   public setTimeOfDayManual(val: number) {
+    this.assertAlive();
     this.dayNight.setTimeOfDayManual(val);
   }
 
   public zoomByFactor(factor: number) {
+    this.assertAlive();
     if (this.tour.active) return;
     this.cameraSystem.zoomByFactor(factor);
   }
 
   public applyCameraPreset(view: CameraViewId, immediate = false) {
+    this.assertAlive();
     this.cameraSystem.applyPreset(view, immediate);
   }
 
   public startTour() {
+    this.assertAlive();
     this.tour.start();
   }
 
   public stopTour() {
+    this.assertAlive();
     this.tour.stop();
   }
 
@@ -235,50 +268,13 @@ export class PocketWorldController {
     }));
   }
 
-  private animate = () => {
-    this.animFrameId = requestAnimationFrame(this.animate);
-
-    const dt = Math.min(this.clock.getDelta(), 0.05);
-    const elapsed = this.clock.getElapsedTime();
-    const { planetRoot, terrain } = this.ctx;
-
+  /** Advance simulation at a fixed rate, independently of camera/render frequency. */
+  private updateSimulation({ deltaSeconds: dt, elapsedSeconds: elapsed }: EngineFixedFrame) {
+    const { terrain } = this.ctx;
     this.skyEvents.tickGaze(dt);
-
-    // 1. Tour or Auto Time-of-Day advancement
-    if (this.tour.active) {
-      this.tour.update();
-    } else if (this.dayNight.advance(dt)) {
-      this.syncWorldStats();
-    }
-
-    // 2. Camera and planet orientation. The scripted tour poses the planet itself;
-    // otherwise the globe controller owns it
-    this.cameraSystem.updateIntroSpin(dt, this.input.isDragging || this.tour.active);
-    if (!this.tour.active) {
-      this.cameraSystem.updateGlobe(dt, planetRoot);
-    }
-    this.worldStyle.update(dt);
-    this.cameraSystem.updateFollow(dt, this.tour.active);
-
-    // 3. Daylight, sky and lights
+    if (!this.tour.active && this.dayNight.advance(dt)) this.syncWorldStats();
     const light = this.dayNight.daylight();
-    this.sky.update(
-      this.dayNight.timeOfDay,
-      light,
-      elapsed,
-      planetRoot.quaternion,
-      this.weather.intensity,
-    );
     terrain.update(elapsed, dt, light.night);
-
-    // 4. Placed objects, inhabitants, weather and sky life
-    this.objectAnimation.update({
-      dt,
-      elapsed,
-      warmGlow: light.warmGlow,
-      camera: this.cameraSystem.camera,
-      holdBeamsAcrossView: this.tour.active && this.tour.time >= 27.0,
-    });
     const bridgesAndDocks = getBridgesAndDocks(this.ctx);
     this.disciples.update(dt, elapsed, this.skyEvents.isGazing, bridgesAndDocks);
     this.creatures.updateSheep(dt, elapsed);
@@ -287,17 +283,77 @@ export class PocketWorldController {
     this.skyEvents.updateBalloons(dt, elapsed, light.warmGlow);
     this.weather.update(dt, elapsed);
     this.skyEvents.updateShootingStars(dt);
-    this.sky.updateFireflies(light, elapsed);
     this.effects.update(dt);
+  }
 
-    this.renderSystem.render(this.scene, this.cameraSystem.camera);
+  /** Present once per host frame; active time freezes while paused or hidden. */
+  private updatePresentation({ deltaSeconds, elapsedSeconds: elapsed }: EngineFrame) {
+    if (this.tour.active) this.tour.update();
+    const dt = Math.min(deltaSeconds, 0.05);
+    const { planetRoot } = this.ctx;
+    this.cameraSystem.updateIntroSpin(dt, this.input.isDragging || this.tour.active);
+    if (!this.tour.active) this.cameraSystem.updateGlobe(dt, planetRoot);
+    this.worldStyle.update(deltaSeconds);
+    this.cameraSystem.updateFollow(dt, this.tour.active);
+    const light = this.dayNight.daylight();
+    this.sky.update(this.dayNight.timeOfDay, light, elapsed, planetRoot.quaternion, this.weather.intensity);
+    this.objectAnimation.update({
+      dt: deltaSeconds, elapsed, warmGlow: light.warmGlow, camera: this.cameraSystem.camera,
+      holdBeamsAcrossView: this.tour.active && this.tour.time >= 27,
+    });
+    this.sky.updateFireflies(light, elapsed);
+  }
+
+  private animate = (timestampMs = performance.now()) => {
+    if (this.disposed) return;
+    const delta = this.previousFrameMs === null ? 0 : Math.max(0, (timestampMs - this.previousFrameMs) / 1000);
+    this.previousFrameMs = timestampMs;
+    this.runtime.advance(delta);
+    this.animFrameId = requestAnimationFrame(this.animate);
   };
 
+  private onVisibilityChange = () => {
+    if (this.disposed) return;
+    this.previousFrameMs = null;
+    if (document.hidden || this.manuallyPaused) this.runtime.pause();
+    else this.runtime.resume();
+  };
+
+  /** Freeze world and presentation clocks while retaining the current scene. */
+  public pause() {
+    this.assertAlive();
+    this.manuallyPaused = true;
+    this.onVisibilityChange();
+  }
+
+  /** Resume subsequent frames without simulating the time spent paused. */
+  public resume() {
+    this.assertAlive();
+    this.manuallyPaused = false;
+    this.onVisibilityChange();
+  }
+
+  /** Detached runtime counters plus the renderer's current resource usage. */
+  public getEngineDiagnostics() {
+    return {
+      name: 'SEIHouse World Engine', version: '0.1.0', stage: 'foundation' as const,
+      worldId: SECT_WORLD_DEFINITION.id, disposed: this.disposed,
+      runtime: this.runtime.diagnostics(),
+      renderer: { ...this.renderSystem.renderer.info.memory },
+      population: this.ctx.entities.villagers.length,
+    };
+  }
+
+  private assertAlive() {
+    if (this.disposed) throw new Error('The world has been disposed');
+  }
+
+  /** Stop scheduling and release input, renderer and every owned scene resource once. */
   public dispose() {
-    if (this.animFrameId !== null) {
-      cancelAnimationFrame(this.animFrameId);
-    }
-    this.input.dispose();
-    this.renderSystem.dispose();
+    if (this.disposed) return;
+    this.disposed = true;
+    if (this.animFrameId !== null) cancelAnimationFrame(this.animFrameId);
+    document.removeEventListener('visibilitychange', this.onVisibilityChange);
+    this.runtime.dispose();
   }
 }

@@ -126,6 +126,18 @@ function buildHeadlessWorld() {
   );
 }
 
+// World-provided ground settings drive placement rather than a separate engine constant.
+{
+  const { ctx, placement } = buildHeadlessWorld();
+  ctx.homeZone = { angularRadius: 0.1, blendAngularRadius: 0.3 };
+  const tangent = new THREE.Vector3().crossVectors(ctx.homeBaseDirection, new THREE.Vector3(0, 1, 0)).normalize();
+  const outsideCustomZone = ctx.homeBaseDirection.clone().multiplyScalar(Math.cos(0.14)).addScaledVector(tangent, Math.sin(0.14));
+  const before = ctx.entities.placedObjects.length;
+  placement.setTool('flower');
+  placement.handleSurfaceAction(outsideCustomZone);
+  assert.equal(ctx.entities.placedObjects.length, before + 1, 'placement ignored the world-provided protected zone');
+}
+
 // 4. Day/night: the phases cover the day and the auto clock rolls over into a new day
 {
   assert.deepEqual(computeDaylight(0.2), { day: 1, twilight: 0, night: 0, warmGlow: 0 });
