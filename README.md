@@ -10,7 +10,7 @@ world format are upcoming milestones.
 
 ## Run and verify
 
-Use Node.js 22+ and Bun 1.3.11. `bun.lock` is the authoritative dependency lock.
+Use Node.js 22.12+ and Bun 1.3.11. `bun.lock` is the authoritative dependency lock.
 
 ```sh
 bun install --frozen-lockfile
