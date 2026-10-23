@@ -1,7 +1,9 @@
-# Sect world engine
+# SEIHouse world systems — Sect adapter
 
-`PocketWorldController` (`../PocketWorldScene.ts`) builds the scene, wires these systems
-together and runs the frame loop. Each system owns one area, so it can be improved on its own.
+`PocketWorldController` (`../PocketWorldScene.ts`) builds the scene and wires these systems
+together. The browser-independent `src/engine/EngineRuntime.ts` now owns fixed
+simulation stepping, presentation time, pause/resume and lifecycle; the controller
+supplies browser animation frames. Each world system owns one area.
 
 | System | Owns |
 |---|---|
@@ -29,16 +31,22 @@ Shared pieces:
   free-spot checks.
 - `SurfaceNavigation.ts`: shared disciple/sheep footprints, swept surface movement,
   idle/spawn recovery, crowd-safe movement, oriented deck support and cached local routes.
-- `initialWorld.ts`: what a new Sect world starts with.
+- `initialWorld.ts`: compatibility export for the Sect starter content in
+  `src/game/sects/initialWorld.ts`.
+- `SceneResources.ts`: owned subtree release and whole-world resource teardown.
 - `worldStats.ts`: the counts and happiness shown in the UI.
 
 Mesh builders live in `../objects/` (re-exported from `../MiniatureObjects.ts`).
 
-Saving/loading and win/lose conditions don't exist yet. When they arrive they become their own
-systems here, reading and writing `WorldEntities`.
+Saving/loading is not implemented. Its next milestone is a versioned plain-data
+world document and tested scene reconstruction. `WorldEntities` is a live registry
+with render handles, not the saved-world format. See the
+[engine audit](../../../docs/seihouse-engine-audit.md) for the staged plan.
 
-**Frame order matters.** The loop in `PocketWorldController.animate` runs the systems in a fixed
-order: tour/clock, camera, world style, sky, objects, disciples, creatures, balloons, weather,
-shooting stars, fireflies, effects, render. Keep it unless a change means to alter behavior.
+**Phase order matters.** Fixed simulation runs clock/terrain, disciples, creatures,
+balloons, weather, shooting stars and effects. Presentation runs tour choreography,
+camera, world style, sky, object animation and fireflies once per host frame, then
+renders. Tour changes reach simulation on the next fixed step. See
+[runtime contracts](../../../docs/engine-runtime.md) before changing this order.
 
 Collision findings, verification and navigation limits: [collision audit](../../../docs/collision-audit.md).

@@ -36,6 +36,7 @@ import {
   realignAllObjectsToTerrain,
 } from './spatial';
 import type { WeatherSystem } from './WeatherSystem';
+import { releaseObjectResources } from './SceneResources';
 
 /** Sculpting brushes stay armed between taps; every other tool places one item */
 function isBrushTool(tool: ToolId) {
@@ -244,7 +245,7 @@ export class PlacementSystem {
 
     // The Sect grounds are locked: nothing is built or sculpted on the terrace
     if (tool !== 'remove' && !isSky) {
-      const keepClear = SECT_ZONE_ANGLE + (isBrush ? 0.04 : 0.015);
+      const keepClear = (this.ctx.homeZone?.angularRadius ?? SECT_ZONE_ANGLE) + (isBrush ? 0.04 : 0.015);
       if (localDir.angleTo(this.ctx.homeBaseDirection) < keepClear) {
         this.ctx.emitSparkles(localDir, '#ffb8b8');
         return;
@@ -441,6 +442,7 @@ export class PlacementSystem {
     if (bestIdx !== -1) {
       const removed = entities.placedObjects.splice(bestIdx, 1)[0];
       groups.objects.remove(removed.mesh);
+      releaseObjectResources(removed.mesh);
       this.ctx.emitSparkles(removed.dir, '#ffb8b8');
       this.ctx.syncStats();
       return;
@@ -451,6 +453,7 @@ export class PlacementSystem {
       if (entities.sailboats[i].dir.distanceTo(localDir) < 0.18) {
         const removed = entities.sailboats.splice(i, 1)[0];
         groups.inhabitants.remove(removed.mesh);
+        releaseObjectResources(removed.mesh);
         this.ctx.emitSparkles(removed.dir, '#ffb8b8', terrain.seaLevel);
         this.ctx.syncStats();
         return;
@@ -462,6 +465,7 @@ export class PlacementSystem {
       if (entities.ducks[i].dir.distanceTo(localDir) < 0.18) {
         const removed = entities.ducks.splice(i, 1)[0];
         groups.inhabitants.remove(removed.mesh);
+        releaseObjectResources(removed.mesh);
         this.ctx.emitSparkles(removed.dir, '#ffb8b8', terrain.seaLevel);
         this.ctx.syncStats();
         return;
@@ -473,6 +477,7 @@ export class PlacementSystem {
       if (entities.balloons[i].currentDir.distanceTo(localDir) < 0.24) {
         const removed = entities.balloons.splice(i, 1)[0];
         groups.atmosphere.remove(removed.mesh);
+        releaseObjectResources(removed.mesh);
         this.ctx.emitSparkles(removed.currentDir, '#ffb8b8', removed.baseAltitude);
         this.ctx.syncStats();
         return;

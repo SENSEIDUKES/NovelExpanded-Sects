@@ -84,5 +84,7 @@ export class RenderSystem {
       this.renderer.domElement.parentNode.removeChild(this.renderer.domElement);
     }
     this.renderer.dispose();
+    // A disposed world will never reuse its context; release the browser GPU slot.
+    this.renderer.forceContextLoss();
   }
 }

@@ -3,6 +3,7 @@ import { createPagodaMesh } from '../MiniatureObjects';
 import { DEFAULT_PAGODA_STYLE, getPagodaStyle, PagodaStyleId } from '../pagodaStyles';
 import { SECT_ZONE_ANGLE, UP_VEC, WorldContext } from './context';
 import { orientPlacedObject } from './spatial';
+import { releaseObjectResources } from './SceneResources';
 
 /**
  * The Sect's home pagoda: which look it has, and rebuilding it in place when the Sect
@@ -27,7 +28,7 @@ export class SectHallSystem {
     const { group, windowMaterials } = createPagodaMesh(style.spec);
     orientPlacedObject(this.ctx.terrain, 'pagoda', group, pagoda.dir, pagoda.yaw);
     this.ctx.groups.objects.remove(pagoda.mesh);
-    disposeObject(pagoda.mesh);
+    releaseObjectResources(pagoda.mesh);
     this.ctx.groups.objects.add(group);
     pagoda.mesh = group;
     pagoda.windowMaterials = windowMaterials;
@@ -41,7 +42,7 @@ export class SectHallSystem {
     const home = this.ctx.homeBaseDirection;
     const right = new THREE.Vector3().crossVectors(UP_VEC, home).normalize();
     const up = new THREE.Vector3().crossVectors(home, right).normalize();
-    const ringRadius = Math.tan(SECT_ZONE_ANGLE * 0.8);
+    const ringRadius = Math.tan((this.ctx.homeZone?.angularRadius ?? SECT_ZONE_ANGLE) * 0.8);
     for (let i = 0; i < 10; i++) {
       const angle = (i / 10) * Math.PI * 2;
       const dir = home
@@ -55,15 +56,4 @@ export class SectHallSystem {
 
     this.ctx.report((prev) => ({ ...prev, pagodaStyle: id }));
   }
-}
-
-/** Free the GPU memory held by a removed mesh tree */
-function disposeObject(root: THREE.Object3D) {
-  root.traverse((node) => {
-    const mesh = node as THREE.Mesh;
-    if (!mesh.isMesh) return;
-    mesh.geometry.dispose();
-    const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-    for (const material of materials) material.dispose();
-  });
 }
