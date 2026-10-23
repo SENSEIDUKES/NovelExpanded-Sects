@@ -240,15 +240,51 @@ function addPagodaFinial(
     return;
   }
 
-  if (spec.finial === 'knob') {
-    // A short bronze knob, plain as the hermitage itself
-    const base = new THREE.Mesh(new THREE.CylinderGeometry(0.0032, 0.0052, 0.006, 8), trimMat);
+  if (spec.finial === 'lotus') {
+    // An open lotus flower: two rings of pink petals around a softly glowing pearl
+    const base = new THREE.Mesh(new THREE.CylinderGeometry(0.0026, 0.0048, 0.006, 8), trimMat);
     base.position.y = y + 0.003;
     group.add(base);
-    const knob = new THREE.Mesh(new THREE.IcosahedronGeometry(0.0038, 1), trimMat);
-    knob.position.y = y + 0.009;
-    knob.castShadow = true;
-    group.add(knob);
+    const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.0008, 0.001, 0.008, 6), trimMat);
+    stem.position.y = y + 0.01;
+    group.add(stem);
+
+    const outerPetalMat = new THREE.MeshStandardMaterial({
+      color: palette.tile,
+      roughness: 0.55,
+      flatShading: true,
+    });
+    const innerPetalMat = new THREE.MeshStandardMaterial({
+      color: palette.wall,
+      roughness: 0.55,
+      flatShading: true,
+    });
+    const flowerY = y + 0.016;
+    const rings = [
+      { count: 6, reach: 0.0034, tilt: 0.95, size: 1.0, mat: outerPetalMat, turn: 0 },
+      { count: 5, reach: 0.0018, tilt: 0.45, size: 0.8, mat: innerPetalMat, turn: 0.4 },
+    ];
+    for (const ring of rings) {
+      for (let i = 0; i < ring.count; i++) {
+        const angle = ring.turn + (i / ring.count) * Math.PI * 2;
+        const pivot = new THREE.Group();
+        pivot.position.y = flowerY;
+        pivot.rotation.y = angle;
+        const petal = new THREE.Mesh(new THREE.IcosahedronGeometry(0.0034 * ring.size, 0), ring.mat);
+        petal.scale.set(0.62, 1.25, 0.32);
+        // Lean each petal outward from the flower's center
+        petal.rotation.x = ring.tilt;
+        petal.position.set(0, 0.0022 * ring.size, ring.reach);
+        petal.castShadow = true;
+        pivot.add(petal);
+        group.add(pivot);
+      }
+    }
+    const pearlMat = glowMat();
+    windowMaterials.push(pearlMat);
+    const pearl = new THREE.Mesh(new THREE.IcosahedronGeometry(0.0024, 1), pearlMat);
+    pearl.position.y = flowerY + 0.0028;
+    group.add(pearl);
     return;
   }
 

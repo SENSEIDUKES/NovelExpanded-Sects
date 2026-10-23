@@ -3,7 +3,7 @@
  * pagoda's shape (tiers, roofs, eaves, finial) and colors; where it stands, its terrace
  * and its footprint stay the same, so disciples walk around every style alike.
  */
-export type PagodaStyleId = 'classic' | 'imperial' | 'hermitage' | 'celestial' | 'shadow';
+export type PagodaStyleId = 'classic' | 'imperial' | 'blossom' | 'celestial' | 'shadow';
 
 export interface PagodaPalette {
   stone: string;
@@ -42,7 +42,7 @@ export interface PagodaSpec {
   tiers: PagodaTierSpec[];
   /** Upturned eave corner tips, sized relative to each eave's rise */
   eaveTip: { radius: number; length: number; lean: number };
-  finial: 'spire' | 'pearl' | 'knob' | 'moon' | 'blade';
+  finial: 'spire' | 'pearl' | 'lotus' | 'moon' | 'blade';
   /** Paper lanterns hanging from the lowest eave's corners */
   hangingLanterns: boolean;
 }
@@ -135,26 +135,26 @@ export const PAGODA_STYLES: PagodaStyleDefinition[] = [
     },
   },
   {
-    id: 'hermitage',
-    label: 'Mountain Hermitage',
-    swatch: { roof: '#5f7a4a', wall: '#cdbfa4', trim: '#4a3424' },
-    accent: '#c9f29b',
+    id: 'blossom',
+    label: 'Blossom Pavilion',
+    swatch: { roof: '#f7a6c6', wall: '#fbe6ee', trim: '#d4728f' },
+    accent: '#ffb8d9',
     spec: {
       plan: 'square',
       palette: {
-        stone: '#8a857c',
-        darkStone: '#66625c',
-        wall: '#cdbfa4',
-        pillar: '#4a3424',
-        tile: '#5f7a4a',
-        trim: '#8a7a52',
-        door: '#3a2a1e',
-        window: '#ffe6b0',
-        windowGlow: '#ffb447',
-        jewel: '#9c8a5a',
-        jewelGlow: '#6b5a2c',
+        stone: '#e2d2d6',
+        darkStone: '#c9b2b9',
+        wall: '#fbe6ee',
+        pillar: '#d4728f',
+        tile: '#f7a6c6',
+        trim: '#e8b4a0',
+        door: '#9a4166',
+        window: '#ffe0ec',
+        windowGlow: '#ff7eb6',
+        jewel: '#ffd6e8',
+        jewelGlow: '#ff8cc6',
       },
-      trimFinish: { metalness: 0.3, roughness: 0.6 },
+      trimFinish: { metalness: 0.65, roughness: 0.3 },
       platform: {
         low: { size: 0.13, height: 0.02, y: 0.0 },
         high: { size: 0.116, height: 0.018, y: 0.017 },
@@ -165,9 +165,9 @@ export const PAGODA_STYLES: PagodaStyleDefinition[] = [
         { width: 0.084, height: 0.032, eaveWidth: 0.12, eaveRise: 0.012 },
         { width: 0.06, height: 0.024, eaveWidth: 0.094, eaveRise: 0.011 },
       ],
-      eaveTip: { radius: 0.3, length: 1.0, lean: 0.35 },
-      finial: 'knob',
-      hangingLanterns: false,
+      eaveTip: { radius: 0.3, length: 1.4, lean: 0.55 },
+      finial: 'lotus',
+      hangingLanterns: true,
     },
   },
   {
