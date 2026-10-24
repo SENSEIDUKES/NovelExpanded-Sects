@@ -99,11 +99,12 @@ Core runtime methods reject updates after disposal; diagnostics remain readable.
 
 `releaseObjectResources(root)` releases geometry/material/shadow resources for an
 owned removed subtree, deduplicating resources shared within that subtree. It
-retains textures because effects can share a sprite with the sky. Current entity
-builders allocate geometry/materials per entity; future sharing across owners
+retains textures because temporary effects borrow a world-owned glow sprite.
+Current entity builders allocate geometry/materials per entity; future sharing across owners
 requires reference-counted asset ownership.
 
 `disposeSceneResources(scene)` releases the entire world's resources, including
 textures, and clears the scene. It supports `retainTextures` for textures owned by
 an external cache or another world. Existing sky and environment textures are
-created per world. The host releases scene resources before renderer disposal.
+created per world. The glow sprite is retained during graph teardown and released
+by its sky-system owner. The host releases scene resources before renderer disposal.

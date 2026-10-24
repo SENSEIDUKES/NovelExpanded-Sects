@@ -8,7 +8,7 @@ supplies browser animation frames. Each world system owns one area.
 | System | Owns |
 |---|---|
 | `RenderSystem` | WebGL renderer, quality settings (`RENDER_QUALITY`), canvas resizing |
-| `SkySystem` | Starfield and atmosphere, scene lights, sun and moon, fireflies |
+| `SkySystem` | Starfield and atmosphere, scene lights, sun and moon |
 | `WorldStyleSystem` | World types (planet styles) and the color fade between them |
 | `CameraSystem` | Camera rig, presets, zoom, planet spin/tilt/fling, double-tap focus, opening spin |
 | `InputSystem` | Pointer, touch pinch, wheel and keyboard; turns gestures into camera and placement actions |
@@ -45,7 +45,7 @@ with render handles, not the saved-world format. See the
 
 **Phase order matters.** Fixed simulation runs clock/terrain, disciples, creatures,
 balloons, weather, shooting stars and effects. Presentation runs tour choreography,
-camera, world style, sky, object animation and fireflies once per host frame, then
+camera, world style, sky and object animation once per host frame, then
 renders. Tour changes reach simulation on the next fixed step. See
 [runtime contracts](../../../docs/engine-runtime.md) before changing this order.
 

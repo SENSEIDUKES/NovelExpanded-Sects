@@ -5,7 +5,7 @@ import type { DaylightFactors } from './DayNightSystem';
 
 /**
  * Lighting, sky and atmosphere: the starfield and glowing atmosphere, the space fill and
- * key lights, the little sun and moon circling the planet, and the night fireflies.
+ * key lights and the little sun and moon circling the planet.
  */
 export class SkySystem {
   readonly roomEnv: RoomEnvironmentHandles;
@@ -17,12 +17,12 @@ export class SkySystem {
   private sunLight!: THREE.DirectionalLight;
   private moonGroup!: THREE.Group;
   private moonLight!: THREE.DirectionalLight;
-  private firefliesPoints!: THREE.Points;
-  private firefliesMat!: THREE.PointsMaterial;
-  private firefliesBasePositions: THREE.Vector3[] = [];
+  /** World-owned texture used only by temporary placement effects. */
+  readonly glowSprite: THREE.Texture;
 
   /** Builds the starry cosmos, atmosphere rim and scene-level lights */
   constructor(scene: THREE.Scene) {
+    this.glowSprite = this.createGlowSprite();
     const envMap = createRoomEnvTexture();
     scene.environment = envMap;
 
@@ -50,11 +50,6 @@ export class SkySystem {
     this.roomWindowLight.shadow.camera.bottom = -d;
     this.roomWindowLight.shadow.bias = -0.0005;
     scene.add(this.roomWindowLight);
-  }
-
-  /** Soft glow sprite shared with the sparkle effects */
-  get glowSprite(): THREE.Texture | null {
-    return this.firefliesMat.map;
   }
 
   addCelestialBodies(planetRoot: THREE.Group) {
@@ -224,28 +219,8 @@ export class SkySystem {
     planetRoot.add(this.moonLight.target);
   }
 
-  addFireflies(planetRoot: THREE.Group) {
-    const count = 38;
-    const positions = new Float32Array(count * 3);
-    for (let i = 0; i < count; i++) {
-      // Distributed in the atmosphere shell between planet (0.82) and inner glass orb (1.36)
-      const dir = new THREE.Vector3(
-        Math.random() - 0.5,
-        Math.random() - 0.5,
-        Math.random() - 0.5,
-      ).normalize();
-      const r = 0.84 + Math.random() * 0.48;
-      const pos = dir.multiplyScalar(r);
-      this.firefliesBasePositions.push(pos);
-      positions[i * 3] = pos.x;
-      positions[i * 3 + 1] = pos.y;
-      positions[i * 3 + 2] = pos.z;
-    }
-
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-
-    // Soft circular glow sprite texture
+  /** Build the glow sprite without creating an ambient particle layer. */
+  private createGlowSprite(): THREE.Texture {
     const canvas = document.createElement('canvas');
     canvas.width = 64;
     canvas.height = 64;
@@ -256,19 +231,12 @@ export class SkySystem {
     grad.addColorStop(1, 'rgba(180, 230, 80, 0)');
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, 64, 64);
-    const spriteTex = new THREE.CanvasTexture(canvas);
+    return new THREE.CanvasTexture(canvas);
+  }
 
-    this.firefliesMat = new THREE.PointsMaterial({
-      map: spriteTex,
-      size: 0.065,
-      transparent: true,
-      opacity: 0.0,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-    });
-
-    this.firefliesPoints = new THREE.Points(geo, this.firefliesMat);
-    planetRoot.add(this.firefliesPoints);
+  /** Release the glow texture after the world's temporary effects have been removed. */
+  dispose() {
+    this.glowSprite.dispose();
   }
 
   /** Circle the sun and moon for the time of day and set every light's strength and color */
@@ -343,22 +311,5 @@ export class SkySystem {
       planetQuaternion,
       weatherIntensity,
     );
-  }
-
-  /** Drifting fireflies inside the orb in twilight and at night */
-  updateFireflies(light: DaylightFactors, elapsed: number) {
-    const fireflyAlpha = Math.max(0, light.night * 0.92 + light.twilight * 0.35);
-    this.firefliesMat.opacity = fireflyAlpha;
-    if (fireflyAlpha > 0.01) {
-      const posAttr = this.firefliesPoints.geometry.attributes.position;
-      for (let i = 0; i < this.firefliesBasePositions.length; i++) {
-        const base = this.firefliesBasePositions[i];
-        const x = base.x + Math.sin(elapsed * 1.1 + i * 1.7) * 0.055;
-        const y = base.y + Math.cos(elapsed * 0.9 + i * 2.3) * 0.055;
-        const z = base.z + Math.sin(elapsed * 1.3 + i * 0.9) * 0.055;
-        posAttr.setXYZ(i, x, y, z);
-      }
-      posAttr.needsUpdate = true;
-    }
   }
 }

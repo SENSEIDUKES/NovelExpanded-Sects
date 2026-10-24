@@ -11,7 +11,7 @@ export interface SceneDisposalOptions {
 /**
  * Release an owned object's GPU resources without detaching it. Geometries and
  * materials shared inside this subtree are freed once. Textures are deliberately
- * retained: effects can share their sprite with sky objects outside the subtree.
+ * retained: effects can borrow their sprite from an owner outside the subtree.
  * Geometry/material sharing across separate owners requires an asset manager.
  */
 export function releaseObjectResources(root: THREE.Object3D): void {
